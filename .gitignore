@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+utils/data/process_history.json
+utils/data/status_history.json
+utils/data/status_history.json.corrupt
+
+.vscode/
+list_copy.py
+list.py
+main_pq copy.py
+data/
