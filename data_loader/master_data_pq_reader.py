@@ -264,6 +264,99 @@ def _resolve_col_case_insensitive(df: pd.DataFrame, col_name: str | None) -> str
 _KEY_FORMAT_FALLBACK_COLS = ["GOODS_DESCR", "NOTICE", "INTRUCTION", "NOREF"]
 
 
+# ------------------- ADVANCED FILTER ENGINE -------------------
+def _eval_single_condition(df: pd.DataFrame, condition: list) -> pd.Series:
+    """Evaluate a single [col, operator, value] condition and return a boolean mask.
+
+    Returns a Series of True for every row if the column is missing,
+    so absent columns never accidentally exclude data.
+    """
+    col_name, ftype, arg = condition
+    if col_name not in df.columns:
+        return pd.Series(True, index=df.index)
+
+    col = df[col_name]
+
+    if ftype == "starts_with":
+        return col.astype(str).str.startswith(str(arg))
+    elif ftype == "ends_with":
+        return col.astype(str).str.endswith(str(arg))
+    elif ftype == "contains":
+        return col.astype(str).str.contains(str(arg), case=False, na=False)
+    elif ftype == "regex":
+        return col.astype(str).str.contains(str(arg), case=False, na=False, regex=True)
+    elif ftype == "equals":
+        return col == arg
+    elif ftype == "iequals":  # case-insensitive equals
+        return col.astype(str).str.upper() == str(arg).upper()
+    elif ftype == "not_equals":
+        return col != arg
+    elif ftype == "gt":
+        return pd.to_numeric(col, errors="coerce") > float(arg)
+    elif ftype == "lt":
+        return pd.to_numeric(col, errors="coerce") < float(arg)
+    elif ftype == "gte":
+        return pd.to_numeric(col, errors="coerce") >= float(arg)
+    elif ftype == "lte":
+        return pd.to_numeric(col, errors="coerce") <= float(arg)
+    elif ftype == "in":
+        return col.isin(arg)
+    elif ftype == "not_in":
+        return ~col.isin(arg)
+    else:
+        raise ValueError(f"Unknown filter operator: {ftype}")
+
+
+def apply_filters(df: pd.DataFrame, condition) -> pd.Series:
+    """Recursively evaluate a nested filter condition tree, returning a boolean mask.
+
+    *condition* can be:
+      - A leaf:  ["COL", "operator", value]
+      - AND:     {"and": [condition, ...]}
+      - OR:      {"or":  [condition, ...]}
+      - NOT:     {"not": condition}
+
+    Leaves are evaluated via ``_eval_single_condition``.
+    Logical nodes combine child masks with &, |, or ~.
+    """
+    # Leaf condition — a plain list/tuple of [col, op, value]
+    if isinstance(condition, (list, tuple)) and len(condition) == 3 and isinstance(condition[0], str):
+        return _eval_single_condition(df, condition)
+
+    if not isinstance(condition, dict):
+        raise ValueError(f"Invalid filter condition (expected dict or [col, op, val]): {condition}")
+
+    # Exactly one logical key per dict node
+    keys = [k.lower() for k in condition]
+    if len(keys) != 1:
+        raise ValueError(f"Filter dict must have exactly one key (and/or/not), got: {keys}")
+
+    key = keys[0]
+    value = condition[list(condition.keys())[0]]
+
+    if key == "and":
+        # value must be a list of sub-conditions
+        masks = [apply_filters(df, sub) for sub in value]
+        result = masks[0]
+        for m in masks[1:]:
+            result = result & m
+        return result
+
+    elif key == "or":
+        masks = [apply_filters(df, sub) for sub in value]
+        result = masks[0]
+        for m in masks[1:]:
+            result = result | m
+        return result
+
+    elif key == "not":
+        # value is a single condition (dict or leaf)
+        return ~apply_filters(df, value)
+
+    else:
+        raise ValueError(f"Unknown logical operator in filter: {key}")
+
+
 def _build_key_patterns(key_formats: list[str]) -> list[re.Pattern]:
     r"""Convert key_format examples into regex patterns.
 
@@ -593,6 +686,7 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
             jumlah_bulan = crit.get("jumlah_bulan")
             selected_statuses = crit.get("selected_statuses")
             filter_cols = crit.get("filter_cols")
+            filters = crit.get("filters")  # new grouped-logic filters
             move_to_file = crit.get("move_to_sheet_of_file")
             clean_receiver = crit.get("clean_receiver")
             rename_cols = crit.get("rename_cols")
@@ -969,29 +1063,16 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                     if col not in df_filtered.columns:
                         df_filtered[col] = ""
 
-            # apply filter_cols rules (same as original)
+            # apply filter_cols rules (legacy format — implicit AND)
             if filter_cols:
                 for col_name, ftype, arg in filter_cols:
-                    if col_name not in df_filtered.columns:
-                        continue
-                    if ftype == "starts_with":
-                        df_filtered = df_filtered[df_filtered[col_name].astype(str).str.startswith(str(arg))]
-                    elif ftype == "ends_with":
-                        df_filtered = df_filtered[df_filtered[col_name].astype(str).str.endswith(str(arg))]
-                    elif ftype == "contains":
-                        df_filtered = df_filtered[df_filtered[col_name].astype(str).str.contains(str(arg), case=False, na=False)]
-                    elif ftype == "equals":
-                        df_filtered = df_filtered[df_filtered[col_name] == arg]
-                    elif ftype == "not_equals":
-                        df_filtered = df_filtered[df_filtered[col_name] != arg]
-                    elif ftype == "gt":
-                        df_filtered = df_filtered[df_filtered[col_name].astype(float) > float(arg)]
-                    elif ftype == "lt":
-                        df_filtered = df_filtered[df_filtered[col_name].astype(float) < float(arg)]
-                    elif ftype == "in":
-                        df_filtered = df_filtered[df_filtered[col_name].isin(arg)]
-                    elif ftype == "not_in":
-                        df_filtered = df_filtered[~df_filtered[col_name].isin(arg)]
+                    mask = _eval_single_condition(df_filtered, [col_name, ftype, arg])
+                    df_filtered = df_filtered[mask]
+
+            # apply advanced grouped filters (new format — supports AND/OR/NOT)
+            if filters:
+                mask = apply_filters(df_filtered, filters)
+                df_filtered = df_filtered[mask]
 
             # prepare saver helper
             def prepare_df_for_save(df_segment: pd.DataFrame) -> pd.DataFrame:
