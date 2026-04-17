@@ -819,20 +819,21 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                     if "AWB" not in manuals_df.columns:
                         print("⚠️ manuals.csv harus punya kolom 'AWB'")
                     else:
-                        manuals_df_deduped = manuals_df.groupby("AWB", as_index=False).agg(
+                        # Normalize AWB BEFORE groupby so whitespace/case variants merge properly
+                        _norm = lambda s: s.astype(str).str.strip().str.lstrip("'").str.replace(r"\s+", "", regex=True).str.upper()
+                        manuals_df["_awb_key"] = _norm(manuals_df["AWB"])
+                        manuals_df_deduped = manuals_df.drop(columns=["AWB"]).groupby("_awb_key", as_index=False).agg(
                             lambda x: x.dropna().iloc[0] if len(x.dropna()) > 0 else pd.NA
                         )
                         duplicate_count = len(manuals_df) - len(manuals_df_deduped)
                         if duplicate_count > 0:
                             if debug: print(f"[DEBUG] Found {duplicate_count} duplicate AWB entries, deduplicated to {len(manuals_df_deduped)}")
                             print(f"📋 Deduped {duplicate_count} duplicate AWB entries dari manuals.csv")
-                        # Normalize AWB for matching: strip leading apostrophe, uppercase, no whitespace
-                        _norm = lambda s: s.astype(str).str.strip().str.lstrip("'").str.replace(r"\s+", "", regex=True).str.upper()
-                        manuals_df_deduped["_awb_key"] = _norm(manuals_df_deduped["AWB"])
                         df["_awb_key"] = _norm(df["AWB"])
-                        manuals_cols = [c for c in manuals_df_deduped.columns if c not in ("AWB", "_awb_key")]
+                        df["_awb_key"] = _norm(df["AWB"])
+                        manuals_cols = [c for c in manuals_df_deduped.columns if c != "_awb_key"]
                         df = df.merge(
-                            manuals_df_deduped.drop(columns=["AWB"])[["_awb_key"] + manuals_cols],
+                            manuals_df_deduped[["_awb_key"] + manuals_cols],
                             on="_awb_key",
                             how="left",
                             suffixes=("", "_manual")
