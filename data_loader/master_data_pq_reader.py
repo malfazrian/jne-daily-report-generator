@@ -714,6 +714,8 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 ]
                 
             process_key = f"query_{saved_as}"
+            if move_to_file:
+                process_key = f"query_{saved_as}__sheet_of_{move_to_file}"
             if not bypass_history and is_processed_today(process_key):
                 print(f"⏩ Skip {saved_as}, sudah diproses hari ini (use bypass_history=True to override).")
                 continue
@@ -1201,24 +1203,25 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                     sheet_name = local_save_as
                     df_to_save = prepare_df_for_save(df_segment)
                     df_to_save = sanitize_df_for_excel(df_to_save)
-                    if not os.path.exists(target_file):
-                        save_with_shortdate(df_to_save, target_file)
-                        print(f"✅ Dibuat file baru {target_file} dengan sheet {sheet_name}")
-                        mark_processed_today(local_process_key)
-                    else:
+                    if os.path.exists(target_file):
                         book = openpyxl.load_workbook(target_file)
-                        if sheet_name in book.sheetnames:
-                            book.remove(book[sheet_name])
-                        ws = book.create_sheet(title=sheet_name)
-                        for i, col in enumerate(df_to_save.columns, 1):
-                            ws.cell(row=1, column=i, value=col)
-                        for r_idx, row in enumerate(df_to_save.itertuples(index=False), 2):
-                            for c_idx, value in enumerate(row, 1):
-                                ws.cell(row=r_idx, column=c_idx, value=value)
-                        style_worksheet(ws)
-                        book.save(target_file)
-                        print(f"📄 Data disimpan ke {target_file} (sheet: {sheet_name})")
-                        mark_processed_today(local_process_key)
+                    else:
+                        book = openpyxl.Workbook()
+                        # Remove default empty "Sheet" created by openpyxl
+                        if book.active and book.active.title == "Sheet":
+                            book.remove(book.active)
+                    if sheet_name in book.sheetnames:
+                        book.remove(book[sheet_name])
+                    ws = book.create_sheet(title=sheet_name)
+                    for i, col in enumerate(df_to_save.columns, 1):
+                        ws.cell(row=1, column=i, value=col)
+                    for r_idx, row in enumerate(df_to_save.itertuples(index=False), 2):
+                        for c_idx, value in enumerate(row, 1):
+                            ws.cell(row=r_idx, column=c_idx, value=value)
+                    style_worksheet(ws)
+                    book.save(target_file)
+                    print(f"📄 Data disimpan ke {target_file} (sheet: {sheet_name})")
+                    mark_processed_today(local_process_key)
                     return
 
                 if jumlah_bulan and ACTIVE_DATE_COL in df_segment.columns:
@@ -1245,11 +1248,43 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 output_path = os.path.join(save_base, fname)
                 df_to_save = prepare_df_for_save(df_segment)
                 df_to_save = sanitize_df_for_excel(df_to_save)
+
+                # Snapshot extra sheets before overwrite (from move_to_sheet_of_file)
+                _extra_sheets = {}
+                if os.path.exists(output_path):
+                    try:
+                        _tmpbook = openpyxl.load_workbook(output_path)
+                        for _sn in _tmpbook.sheetnames:
+                            if _sn == "Sheet1":
+                                continue
+                            _ws = _tmpbook[_sn]
+                            _extra_sheets[_sn] = [[cell.value for cell in row] for row in _ws.iter_rows()]
+                        _tmpbook.close()
+                    except Exception:
+                        pass
+
                 output_path = _safe_save_dataframe_excel(
                     df_to_save,
                     output_path,
                     use_shortdate=not bool(edit_file),
                 )
+
+                # Re-add extra sheets that were preserved
+                if _extra_sheets:
+                    try:
+                        _book = openpyxl.load_workbook(output_path)
+                        for _sn, _rows in _extra_sheets.items():
+                            if _sn in _book.sheetnames:
+                                _book.remove(_book[_sn])
+                            _ws2 = _book.create_sheet(title=_sn)
+                            for _r_idx, _row_data in enumerate(_rows, 1):
+                                for _c_idx, _val in enumerate(_row_data, 1):
+                                    _ws2.cell(row=_r_idx, column=_c_idx, value=_val)
+                            style_worksheet(_ws2)
+                        _book.save(output_path)
+                    except Exception:
+                        pass
+
                 _update_status_history(df_to_save, output_path)
                 print(f"✅ Disimpan: {output_path}")
                 mark_processed_today(local_process_key)

@@ -45,7 +45,7 @@ table_reference_path = TABLE_REFERENCE_PATH
 manuals_path = MANUALS_PATH
 ref_path = PROJECT_REFERENCE_TARGET_CSV
 
-MAX_WORKERS = min(4, os.cpu_count() or 2)
+MAX_WORKERS = min(1, os.cpu_count() or 2)
 
 
 # =========================
