@@ -98,6 +98,10 @@ def add_status_pod(df: pd.DataFrame, debug: bool = False) -> pd.DataFrame:
                 print(f"Added missing optional column {col} with pd.NA")
 
     if "STATUS_POD_UPDATE" in df.columns:
+        # Terapkan STATUS_POD_UPDATE ke STATUS_POD sebelum dibuang,
+        # agar nilai seperti "Return Shipper" tidak hilang saat cek_d24_d25 membaca STATUS_POD.
+        mask = df["STATUS_POD_UPDATE"].notna() & (df["STATUS_POD_UPDATE"].astype(str).str.strip() != "")
+        df.loc[mask, "STATUS_POD"] = df.loc[mask, "STATUS_POD_UPDATE"]
         df = df.drop(columns=["STATUS_POD_UPDATE"])
 
     if debug:
