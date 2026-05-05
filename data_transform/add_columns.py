@@ -34,11 +34,12 @@ def add_address(df: pd.DataFrame, name: str) -> pd.DataFrame:
 def add_status_pod_c01(df: pd.DataFrame, debug: bool = False) -> pd.DataFrame:
     df = df.copy()
 
-    # Check if required columns exist
-    required_columns = ['CODING', 'STATUS_POD', 'STATUS_POD_UPDATE']
-    missing_required = [col for col in required_columns if col not in df.columns]
-    if missing_required:
-        raise ValueError(f"Missing required columns: {missing_required}")
+    if "STATUS_POD" not in df.columns:
+        raise ValueError("Missing required columns: ['STATUS_POD']")
+    if "CODING" not in df.columns:
+        df["CODING"] = pd.NA
+    if "STATUS_POD_UPDATE" not in df.columns:
+        df["STATUS_POD_UPDATE"] = df["STATUS_POD"]
     
     if debug:
         print("Kolom awal:", df.columns.tolist())
@@ -2220,5 +2221,24 @@ def add_3lc_dest_fw(df: pd.DataFrame) -> pd.DataFrame:
         return df
     
     df["3 LC DEST FW"] = df["DEST_FW"].str[:3]
+
+    return df
+
+def add_rounded_weight(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    if "WEIGHT" not in df.columns:
+        print("⚠️ Kolom 'WEIGHT' tidak ditemukan, tidak bisa menambahkan ROUNDED WEIGHT.")
+        return df
+
+    # Pastikan WEIGHT numeric
+    df["WEIGHT"] = pd.to_numeric(df["WEIGHT"], errors="coerce")
+
+    # Pembulatan: jika desimal > 0.3, bulatkan ke atas; else ke bawah
+    df["WEIGHT"] = np.where(
+        (df["WEIGHT"] % 1) > 0.3,
+        np.ceil(df["WEIGHT"]),
+        np.floor(df["WEIGHT"])
+    )
 
     return df

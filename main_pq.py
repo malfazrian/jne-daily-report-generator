@@ -45,7 +45,13 @@ table_reference_path = TABLE_REFERENCE_PATH
 manuals_path = MANUALS_PATH
 ref_path = PROJECT_REFERENCE_TARGET_CSV
 
-MAX_WORKERS = min(1, os.cpu_count() or 2)
+LOCAL_TEMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "duckdb_temp")
+os.makedirs(LOCAL_TEMP_DIR, exist_ok=True)
+os.environ["TEMP"] = LOCAL_TEMP_DIR
+os.environ["TMP"] = LOCAL_TEMP_DIR
+os.environ["TMPDIR"] = LOCAL_TEMP_DIR
+
+MAX_WORKERS = int(os.getenv("BOT_MAX_WORKERS", "1"))
 
 
 # =========================
@@ -200,7 +206,7 @@ if __name__ == "__main__":
     # PARALLEL: GET DATA ONLY
     # =========================
 
-    bypass_history = False
+    bypass_history = True
 
     print(f"\n🚀 Parallel get_data_from_master_pq | workers={MAX_WORKERS}\n")
  

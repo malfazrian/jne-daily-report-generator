@@ -15,7 +15,7 @@ from data_transform.add_columns import (
     add_SBS, add_dept_PZC, add_AJCar_status, add_is_close, add_reason, add_no,
     add_reason_last_attempt, add_date_receive_request, add_descr_return,
     add_update_time, add_uob_pickup_data_cols, add_sociolla_cols, add_grouping_status,
-    add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw
+    add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw, add_rounded_weight
 )
 from data_transform.parse_dates import normalize_all_dates
 from .ref_data_loader import load_cust_ref
@@ -104,7 +104,58 @@ TRANSFORM_FUNCS = {
     "REASON_1ST_ATTEMPT": lambda df, ref: add_reason_1st_attempt(df, ref),
     "WILAYAH": lambda df, ref: add_wilayah(df, ref),
     "DATE_1ST_ATTEMPT": lambda df, ref: fix_empty_date_1st_attempt(df),
-    "3 LC DEST FW": lambda df, ref: add_3lc_dest_fw(df)
+    "3 LC DEST FW": lambda df, ref: add_3lc_dest_fw(df),
+    "WEIGHT": lambda df, ref: add_rounded_weight(df)
+}
+
+STATUS_POD_FULL_INPUT_COLS = [
+    "CODING", "AWB_CANCEL", "TGL_ENTRY", "CONNOTE_RETURN_RT", "CONNOTE_RETURN_RF",
+    "RESULT_1ST_ATTEMPT", "STATUS_POD", "STATUS_POD_UPDATE", "INBOUND_MANIFEST",
+    "MANIFEST_TRANSIT_AGEN", "HVI_NO", "RUNSHEET_NO", "OUTBOUND_MANIFEST",
+    "RECEIVING", "HVO_NO", "ORIGIN", "DEST", "CONFIRM_SHIPMENT_UNDEL",
+    "DATE_RUNSHEET", "NO_CNOTE_FW", "DEST_FW", "CODING_STATUS_FW",
+    "DESC_STATUS_FW", "IREG_CODE",
+]
+
+TRANSFORM_INPUT_COLS = {
+    "ADDRESS": ["ADDR1", "ADDR2", "ADDR3"],
+    "STATUS_POD": ["CODING", "STATUS_POD", "STATUS_POD_UPDATE"],
+    "CUST_NAME": ["GROUPING_SHIPPER"],
+    "STATUS_LATLONG": ["STATUS_LATITUDE", "STATUS_LONGITUDE"],
+    "ETA": ["ETD", "TGL_ENTRY"],
+    "CODING_DELIVERY": ["CODING"],
+    "GROUPING_LATE": [
+        "ORIGIN", "3 LC DEST", "OUTBOUND_MANIFEST_DATE", "1ST_HVO_DATE",
+        "HBG_DATE", "PICKUP_STATUS", "PICKUP_DATE", "TGL_ENTRY",
+        "INBOUND_MANIFEST_DATE", "HVI_DATE", "1ST_RUNSHEET_DATE", "ETD",
+        "ZONA", "MANIFEST_TRANSIT_SUBAGEN_DATE", "MANIFEST_INBOUND_SUBAGEN_DATE",
+        "RECEIVING_DATE", "TGL_RECEIVED", "DATE_LAST_ATTEMPT", "STATUS_POD",
+        "NO_CNOTE_FW", "HOLD_REASON", "CARRER",
+    ],
+    "GROUPING_SLA": ["SLA"],
+    "ORIGIN 2": ["ORIGIN"],
+    "DEPT PZC": ["ID_ACCOUNT", "GROUPING_SHIPPER"],
+    "IS_CLOSE": ["STATUS_POD"],
+    "REASON": ["STATUS_POD", "AGING_POD"],
+    "REASON_LAST_ATTEMPT": ["RESULT_LAST_ATTEMPT"],
+    "DATE_RECEIVE_REQUEST": ["CONNOTE_RETURN_RT", "TGL_RECEIVED", "DATE_CONNOTE_RETURN_RT"],
+    "DESCR_RETURN": ["STATUS_POD"],
+    "GROUPING_STATUS": ["STATUS_POD"],
+    "SPK": ["INTRUCTION"],
+    "REASON_1ST_ATTEMPT": ["RESULT_1ST_ATTEMPT"],
+    "DATE_1ST_ATTEMPT": ["DATE_1ST_ATTEMPT", "STATUS_POD", "TGL_RECEIVED"],
+    "3 LC DEST FW": ["DEST_FW"],
+}
+
+TRANSFORM_GROUP_INPUT_COLS = {
+    "ORIGIN_CITY_GROUP": ["ORIGIN"],
+    "PROVINCE_GROUP": ["DEST"],
+    "PERIODE_GROUP": ["TGL_ENTRY"],
+    "TGL_RECEIVED_GROUP": ["TGL_RECEIVED"],
+    "AJ_CAR_GROUP": STATUS_POD_FULL_INPUT_COLS,
+    "UOB_GROUP": ["REFNO_UOB", "STATUS_POD", "RECEIVED/REASON", "CODING", "AWB", "REASON RETURN", "TGL_RECEIVED"],
+    "YOUNG_LIVING_GROUP": ["AWB", "NOREF", "AMOUNT", "WEIGHT", "PROVINSI", "ETD", "TGL_RECEIVED", "TGL_ENTRY", "STATUS_POD"],
+    "FIX_CONTACT_NOTELP_GROUP": ["CONTACT", "NOTELP"],
 }
 
 # daftar kolom yang dibutuhkan (preserve)
@@ -356,6 +407,22 @@ def apply_filters(df: pd.DataFrame, condition) -> pd.Series:
     else:
         raise ValueError(f"Unknown logical operator in filter: {key}")
 
+def _collect_filter_columns(condition) -> set[str]:
+    if isinstance(condition, (list, tuple)) and len(condition) == 3 and isinstance(condition[0], str):
+        return {condition[0].strip().upper()}
+
+    if not isinstance(condition, dict):
+        return set()
+
+    cols = set()
+    for value in condition.values():
+        if isinstance(value, list):
+            for item in value:
+                cols.update(_collect_filter_columns(item))
+        else:
+            cols.update(_collect_filter_columns(value))
+    return cols
+
 
 def _build_key_patterns(key_formats: list[str]) -> list[re.Pattern]:
     r"""Convert key_format examples into regex patterns.
@@ -516,13 +583,79 @@ def _collect_parquet_files(folders, base_dir=None, category=None, debug=False):
         print(f"[DEBUG] total parquet files collected: {len(unique_files)}")
     return unique_files
 
-def get_duckdb_connection():
-    return duckdb.connect(database=":memory:", read_only=False)
+def get_duckdb_connection(debug: bool = False):
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    duckdb_temp_dir = os.path.join(project_root, "data", "duckdb_temp")
+    os.makedirs(duckdb_temp_dir, exist_ok=True)
+    os.environ["TEMP"] = duckdb_temp_dir
+    os.environ["TMP"] = duckdb_temp_dir
+    os.environ["TMPDIR"] = duckdb_temp_dir
+    duckdb_temp_dir_sql = duckdb_temp_dir.replace("'", "''")
 
-def _load_parquet_with_duckdb(con, parquet_files: list[str], query: str):
+    con = duckdb.connect()
+    con.execute("SET threads=4;")
+    con.execute("SET preserve_insertion_order=false;")
+    con.execute("SET memory_limit='5GB';")
+    con.execute("SET max_temp_directory_size='200GB';")
+    con.execute(f"SET temp_directory='{duckdb_temp_dir_sql}';")
+    con.execute("SET enable_progress_bar=false;")
+    con.execute("SET enable_object_cache=true;")
+
+    if debug:
+        settings = con.execute(
+            """
+            SELECT
+                current_setting('temp_directory') AS temp_directory,
+                current_setting('memory_limit') AS memory_limit,
+                current_setting('max_temp_directory_size') AS max_temp_directory_size
+            """
+        ).fetchone()
+        print(
+            "[DEBUG] DuckDB settings: "
+            f"temp_directory={settings[0]}, "
+            f"memory_limit={settings[1]}, "
+            f"max_temp_directory_size={settings[2]}"
+        )
+
+    return con
+
+def _quote_duckdb_identifier(name: str) -> str:
+    return f'"{str(name).replace(chr(34), chr(34) * 2)}"'
+
+def _get_parquet_columns(con, files: list[str]) -> list[str]:
+    if not files:
+        return []
+
+    info = con.execute("DESCRIBE SELECT * FROM read_parquet($1) LIMIT 0", [files]).fetchall()
+    return [row[0] for row in info]
+
+def _resolve_duckdb_columns(con, files: list[str], requested_cols=None) -> list[str]:
+    available_cols = _get_parquet_columns(con, files)
+    if not requested_cols:
+        return available_cols
+
+    available_by_upper = {
+        str(col).strip().upper(): col
+        for col in available_cols
+    }
+
+    resolved = []
+    seen = set()
+    for col in requested_cols:
+        key = str(col).strip().upper()
+        actual = available_by_upper.get(key)
+        if actual and key not in seen:
+            resolved.append(actual)
+            seen.add(key)
+
+    return resolved or available_cols
+
+def _load_parquet_with_duckdb(con, parquet_files: list[str], query: str, columns=None):
     files = ",".join([f"'{f}'" for f in parquet_files])
+    selected_columns = _resolve_duckdb_columns(con, parquet_files, columns)
+    select_sql = ", ".join(_quote_duckdb_identifier(col) for col in selected_columns)
     sql = f"""
-        SELECT *
+        SELECT {select_sql}
         FROM read_parquet([{files}])
         WHERE {query}
     """
@@ -536,6 +669,7 @@ def _load_filtered_parquet_with_duckdb(
     end_dt=None,
     id_account=None,
     selected_statuses=None,
+    columns=None,
     debug=False,
 ):
     if not files:
@@ -579,14 +713,18 @@ def _load_filtered_parquet_with_duckdb(
         if where_clauses:
             where_sql = "WHERE " + " AND ".join(where_clauses)
 
+        selected_columns = _resolve_duckdb_columns(con, files, columns)
+        select_sql = ", ".join(_quote_duckdb_identifier(col) for col in selected_columns)
+
         sql = f"""
-            SELECT *
+            SELECT {select_sql}
             FROM read_parquet($1)
             {where_sql}
         """
 
         if debug:
             print("[DEBUG SQL]", sql)
+            print(f"[DEBUG] DuckDB selected columns: {len(selected_columns)}")
 
         df = con.execute(sql, [files] + params).df()
         if df.empty:
@@ -595,6 +733,8 @@ def _load_filtered_parquet_with_duckdb(
         df.columns = [c.strip().upper() for c in df.columns]
         return df
 
+    except duckdb.OutOfMemoryException:
+        raise
     except Exception as e:
         print(f"❌ DuckDB filtered read failed: {e}")
         return pd.DataFrame()
@@ -655,7 +795,7 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
         * normalizes dates, runs transforms and saves results as before.
     """
     base_unc = r"\\?\UNC" + base_dir[1:] if base_dir.startswith(r"\\") else base_dir
-    con = get_duckdb_connection()
+    con = get_duckdb_connection(debug=debug)
 
     # helper: create month list between start_dt (inclusive) and end_dt (exclusive)
     def _months_between(start_dt, end_dt):
@@ -696,6 +836,8 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
             ref_sheet = cust_ref.get("ref_sheet", [])
             col_order = cust_ref.get("col_order")
             period = (crit.get("period") or "").strip().lower()
+
+            print(f"\n🔍 Processing: {saved_as} (group: {group_name})")
 
             # =========================
             # DATE COLUMN DEFINITIONS
@@ -766,7 +908,11 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 print(f"[DEBUG] parquet files found for crit {saved_as}: {len(parquet_files)}")
 
             # desired columns: selected_cols + date_col + BIG_GROUPING_CUST + joins/filters
-            desired = set((selected_cols or []) + [MASTER_DATE_COL, "BIG_GROUPING_CUST", "AWB", "TGL_TARIK_REPORT", "STATUS_POD", "ID_ACCOUNT"])
+            desired = {
+                str(col).strip().upper()
+                for col in ((selected_cols or []) + [MASTER_DATE_COL, "BIG_GROUPING_CUST", "AWB", "TGL_TARIK_REPORT", "STATUS_POD", "ID_ACCOUNT"])
+                if str(col).strip()
+            }
 
             # add cust_ref key if present
             if cust_ref:
@@ -775,12 +921,28 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
 
             # also include all cols referenced by transform groups/functions (uppercased)
             transform_needed = set()
-            for tg in TRANSFORM_GROUPS.values():
-                for c in tg.get("cols", []):
-                    transform_needed.add(c.strip().upper())
-            for name in TRANSFORM_FUNCS.keys():
-                transform_needed.add(name.strip().upper())
+            for tg_name, tg in TRANSFORM_GROUPS.items():
+                group_output_cols = {str(col).strip().upper() for col in tg.get("cols", [])}
+                if selected_cols and desired.intersection(group_output_cols):
+                    for c in TRANSFORM_GROUP_INPUT_COLS.get(tg_name, []):
+                        transform_needed.add(c.strip().upper())
+            if selected_cols:
+                for name in TRANSFORM_FUNCS:
+                    key = name.strip().upper()
+                    if key in desired:
+                        for c in TRANSFORM_INPUT_COLS.get(name, []):
+                            transform_needed.add(c.strip().upper())
             desired.update(transform_needed)
+
+            if filter_cols:
+                for col_name, _, _ in filter_cols:
+                    desired.add(str(col_name).strip().upper())
+            if filters:
+                desired.update(_collect_filter_columns(filters))
+            if split_by_col_val:
+                desired.add(str(split_by_col_val).strip().upper())
+            if clean_receiver:
+                desired.update(["RECEIVED/REASON", "RECEIVING"])
 
             df = _load_filtered_parquet_with_duckdb(
                 con,
@@ -790,6 +952,7 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 end_dt=end_dt,
                 id_account=id_account,
                 selected_statuses=selected_statuses,
+                columns=desired,
                 debug=debug
             )
             used_full_read_fallback = False
@@ -810,7 +973,7 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                     id_literal = ", ".join([f"'{v.replace("'", "''")}'" for v in expanded_vals])
                     fallback_query = f'trim(cast("ID_ACCOUNT" as varchar)) IN ({id_literal})'
 
-                df_load = _load_parquet_with_duckdb(con, parquet_files, fallback_query)
+                df_load = _load_parquet_with_duckdb(con, parquet_files, fallback_query, columns=desired)
                 if df_load.empty:
                     print(f"⚠️ DuckDB full read returned empty for {saved_as}")
                     continue
@@ -1303,6 +1466,7 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
             print(f"❌ Gagal proses {crit.get('group_name')}: {e}")
             continue
 
+    con.close()
     return not had_errors
 
 # keep existing get_data_from_rt (unchanged)
