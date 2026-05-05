@@ -13,8 +13,8 @@ from data_transform.add_columns import (
     add_grouping_late, add_origin_city, add_periode, add_province_zipcode,
     add_status_latlong, add_date_time_received, add_grouping_sla, add_PIC,
     add_SBS, add_dept_PZC, add_AJCar_status, add_is_close, add_reason, add_no,
-    add_reason_last_attempt, add_date_receive_request, add_descr_return,
-    add_update_time, add_uob_pickup_data_cols, add_sociolla_cols, add_grouping_status,
+    add_reason_last_attempt, add_date_receive_request, add_descr_return, add_rodamas_cols,
+    add_update_time, add_uob_pickup_data_cols, add_sociolla_cols, add_grouping_status, add_aging_carrer,
     add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw, add_rounded_weight
 )
 from data_transform.parse_dates import normalize_all_dates
@@ -55,10 +55,10 @@ TRANSFORM_GROUPS = {
         "cols": ["DATE_RECEIVED", "TIME_RECEIVED"],
         "func": lambda df, ref: add_date_time_received(df),
     },
-    # "AGING_CARRER_GROUP": {
-    #     "cols": ["AGING_1ST", "CAREER_1ST", "AGING_POD", "CARRER_POD"],
-    #     "func": lambda df, ref: add_aging_carrer(df),
-    # },
+    "AGING_CARRER_GROUP": {
+        "cols": ["AGING_1ST", "CAREER_1ST", "AGING_POD", "CARRER_POD"],
+        "func": lambda df, ref: add_aging_carrer(df),
+    },
     "AJ_CAR_GROUP": {
         "cols": ["AJ Car Status", "KETERANGAN AJ CAR", "Remark Return"],
         "func": lambda df, ref: add_AJCar_status(df, ref),
@@ -74,6 +74,10 @@ TRANSFORM_GROUPS = {
     "YOUNG_LIVING_GROUP": {
         "cols": ["OTMS Order", "Target", "Origin_WH", "Vendor", "No_YL", "No DSV", "Buyer PO", "Indonesia Bagian", "City Code", "Harga Per KG", "ATA", "LEAD TIME", "SLA_", "REMARK_YL", "AWB 2"],
         "func": lambda df, ref: add_young_living_cols(df)
+    },
+    "RODAMAS_GROUP": {
+        "cols": ["NAMA ORIGIN", "CUSTOMER"],
+        "func": lambda df, ref: add_rodamas_cols(df)
     },
     "FIX_CONTACT_NOTELP_GROUP": {
         "cols": ["CONTACT", "NOTELP"],
@@ -105,7 +109,7 @@ TRANSFORM_FUNCS = {
     "WILAYAH": lambda df, ref: add_wilayah(df, ref),
     "DATE_1ST_ATTEMPT": lambda df, ref: fix_empty_date_1st_attempt(df),
     "3 LC DEST FW": lambda df, ref: add_3lc_dest_fw(df),
-    "WEIGHT": lambda df, ref: add_rounded_weight(df)
+    "WEIGHT": lambda df, ref: add_rounded_weight(df),
 }
 
 STATUS_POD_FULL_INPUT_COLS = [
@@ -156,6 +160,7 @@ TRANSFORM_GROUP_INPUT_COLS = {
     "UOB_GROUP": ["REFNO_UOB", "STATUS_POD", "RECEIVED/REASON", "CODING", "AWB", "REASON RETURN", "TGL_RECEIVED"],
     "YOUNG_LIVING_GROUP": ["AWB", "NOREF", "AMOUNT", "WEIGHT", "PROVINSI", "ETD", "TGL_RECEIVED", "TGL_ENTRY", "STATUS_POD"],
     "FIX_CONTACT_NOTELP_GROUP": ["CONTACT", "NOTELP"],
+    "AGING_CARRER_GROUP": ["DATE_1ST_ATTEMPT", "STATUS_POD", "TGL_RECEIVED", "DATE_LAST_ATTEMPT", "CODING", "REASON RETURN"]
 }
 
 # daftar kolom yang dibutuhkan (preserve)

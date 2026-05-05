@@ -987,6 +987,8 @@ def add_aging_carrer(df: pd.DataFrame,
 
     df = df.copy()
 
+    debug = True
+
     # --- Resolve kolom dengan dual name ---
     col_1st_attempt      = resolve_col(df, ["1ST ATTEMPT", "1ST_ATTEMPT_DATE"])
     col_aging_1st        = resolve_col(df, ["AGING 1st ATTEMPT", "AGING_1ST"])
@@ -2228,17 +2230,26 @@ def add_rounded_weight(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     if "WEIGHT" not in df.columns:
-        print("⚠️ Kolom 'WEIGHT' tidak ditemukan, tidak bisa menambahkan ROUNDED WEIGHT.")
+        print("⚠️ Kolom 'WEIGHT' tidak ditemukan.")
         return df
 
-    # Pastikan WEIGHT numeric
     df["WEIGHT"] = pd.to_numeric(df["WEIGHT"], errors="coerce")
 
-    # Pembulatan: jika desimal > 0.3, bulatkan ke atas; else ke bawah
-    df["WEIGHT"] = np.where(
+    rounded = np.where(
         (df["WEIGHT"] % 1) > 0.3,
         np.ceil(df["WEIGHT"]),
         np.floor(df["WEIGHT"])
     )
+
+    # Pastikan minimal 1
+    df["WEIGHT"] = np.maximum(1, rounded)
+
+    return df
+
+def add_rodamas_cols(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    df["NAMA ORIGIN"] = "JNE DKI JAKARTA"
+    df["CUSTOMER"] = "HO"
 
     return df

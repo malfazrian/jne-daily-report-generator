@@ -1,3 +1,4 @@
+from doctest import debug
 import os, time, shutil, pythoncom, win32com.client as win32, psutil
 from win32com.client import constants as c 
 from .pivot_helper import work_on_local_copy, copy_back, safe_create_pivotcache, ensure_unique_pivot_name, make_pivot, is_writable, safe_clear_pivots
@@ -106,7 +107,7 @@ def sort_pivot_rows_by_value(pt, row_field_name, data_field_caption, order="desc
         return False
 
 def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list | None = None, summary_sheet_name: str = "Summary", date_format: str = "dd/mm/yyyy",
-    max_retries: int = 5) -> bool:
+    max_retries: int = 5, debug: bool = False) -> bool:
     """
     Buat PivotTables asli via Excel COM **di salinan lokal** lalu copy balik.
     Return True kalau sukses (pivot terbuat), False kalau gagal.
@@ -190,6 +191,26 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
                     except Exception as e:
                         pass
 
+            single_month = False
+
+            for col in range(1, last_col + 1):
+                header = str(src_ws.Cells(1, col).Value).strip().upper()
+                if header == "TGL_ENTRY":
+                    dates = []
+
+                    for r in range(2, last_row + 1):
+                        val = src_ws.Cells(r, col).Value
+                        if isinstance(val, datetime):
+                            dates.append((val.year, val.month))
+
+                    unique_months = set(dates)
+                    single_month = len(unique_months) == 1
+
+                    if debug:
+                        print(f"[INFO] Unique months: {unique_months}")
+                        print(f"[INFO] Single month: {single_month}")
+                    break
+
             # 4) Hapus Summary lama jika ada
             safe_clear_pivots(wb)
             try:
@@ -227,7 +248,9 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
                     # --- jika kolom tanggal, group per bulan ---
                     hdr = str(row_field).upper()
                     if ("TGL" in hdr) or ("DATE" in hdr and "UPDATE" not in hdr):
-                        _group_pivot_date_by_month_year(pt, row_field)
+                        if not single_month:
+                            # lebih dari 1 bulan → group by bulan
+                            _group_pivot_date_by_month_year(pt, row_field)
                         
                 # columns
                 for i, col_field in enumerate(pivot.get("columns", []), start=1):
@@ -238,7 +261,9 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
                     # --- jika kolom tanggal, group per bulan ---
                     hdr = str(col_field).upper()
                     if ("TGL" in hdr) or ("DATE" in hdr and "UPDATE" not in hdr):
-                        _group_pivot_date_by_month_year(pt, col_field)
+                        if not single_month:
+                            # lebih dari 1 bulan → group by bulan
+                            _group_pivot_date_by_month_year(pt, col_field)
 
                 # filters
                 for i, flt in enumerate(pivot.get("filters", []), start=1):

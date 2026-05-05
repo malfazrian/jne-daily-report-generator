@@ -560,3 +560,56 @@ pivot_status_by_tgl_entry = [
         }
     }
 ]
+
+pivot_rodamas = [
+    {
+        "name": "PivotStatusRodamas",
+        "dest": "B2",
+        "rows": ["STATUS_POD"],
+        "columns": [],
+        "filters": [],
+        "values": [
+            {"field": "AWB", "name": "JUMLAH", "func": "count"},
+            {"field": "AWB", "name": "% of Row Total", "func": "count", "as_percentage": True, "percentage_of": "column"}
+        ]
+    },
+    {
+        "name": "PivotServiceRodamas",
+        "dest": "F2",
+        "rows": ["SERVICE"],
+        "columns": [],
+        "filters": [],
+        "values": [
+            {"field": "AWB", "name": "JUMLAH", "func": "count"},
+            {"field": "AWB", "name": "% of Row Total", "func": "count", "as_percentage": True, "percentage_of": "column"}
+        ]
+    },
+    {
+        "name": "PivotCustomerRodamas",
+        "dest": "J2",
+        "rows": ["CUSTOMER"],
+        "columns": [],
+        "filters": [],
+        "values": [
+            {"field": "AWB", "name": "JUMLAH", "func": "count"},
+            {"field": "AWB", "name": "% of Row Total", "func": "count", "as_percentage": True, "percentage_of": "column"}
+        ]
+    },
+    {
+        "name": "PivotStatusByTglEntry",
+        "dest": "N2",
+        "rows": ["TGL_ENTRY"],
+        "columns": [],
+        "filters": [],
+        "values": [
+            {"field": "AWB", "name": "JUMLAH", "func": "count"},
+            {
+                "field": "AWB",
+                "name": "% of Row Total",
+                "func": "count",
+                "as_percentage": True,
+                "percentage_of": "column"
+            }
+        ]
+    }
+]
