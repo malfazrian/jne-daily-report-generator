@@ -49,7 +49,9 @@ def _group_pivot_date_by_month_year(pt, field_name: str) -> bool:
     Kembalikan True kalau sukses, False kalau gagal.
     """
     try:
-        pf = pt.PivotFields(field_name)
+        pf = safe_get_pivot_field(pt, field_name)
+        if pf is None:
+            return False
         # Pastikan layout sudah jadi
         try:
             pt.RefreshTable()
@@ -87,7 +89,9 @@ def sort_pivot_rows_by_value(pt, row_field_name, data_field_caption, order="desc
     order: 'asc' | 'desc'
     """
     try:
-        rf = pt.PivotFields(row_field_name)
+        rf = safe_get_pivot_field(pt, row_field_name)
+        if rf is None:
+            return False
 
         # pastikan pivot up-to-date
         try:
@@ -105,6 +109,43 @@ def sort_pivot_rows_by_value(pt, row_field_name, data_field_caption, order="desc
     except Exception as e:
         print(f"[!] Gagal sort pivot row '{row_field_name}' by '{data_field_caption}': {e}")
         return False
+    
+def hide_blank_in_pivot_field(pivot_field):
+    try:
+        for item in pivot_field.PivotItems():
+            name = str(item.Name).strip().lower()
+            if name in ("", "(blank)"):
+                item.Visible = False
+    except Exception:
+        # kadang error kalau semua item di-hide
+        pass
+
+
+def safe_get_pivot_field(pt, field_name, debug=False):
+    """
+    Safely get a PivotField from PivotTable `pt` by `field_name`.
+    Returns the PivotField object or None if not found. When failing,
+    prints available pivot field names to help debugging.
+    """
+    try:
+        return pt.PivotFields(field_name)
+    except Exception as e:
+        try:
+            # collect available pivot field names
+            names = []
+            for _pf in pt.PivotFields():
+                try:
+                    names.append(str(_pf.Name))
+                except Exception:
+                    pass
+            if debug:
+                print(f"[!] PivotFields lookup failed for '{field_name}': {e}")
+                print(f"[!] Available pivot fields: {names}")
+            else:
+                print(f"[!] PivotFields lookup failed for '{field_name}'. Available fields: {names}")
+        except Exception:
+            print(f"[!] PivotFields lookup failed for '{field_name}': {e} (and failed to enumerate fields)")
+        return None
 
 def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list | None = None, summary_sheet_name: str = "Summary", date_format: str = "dd/mm/yyyy",
     max_retries: int = 5, debug: bool = False) -> bool:
@@ -234,9 +275,15 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
 
                 # rows
                 for i, row_field in enumerate(pivot.get("rows", []), start=1):
-                    pf = pt.PivotFields(row_field)
+                    pf = safe_get_pivot_field(pt, row_field, debug=debug)
+                    if pf is None:
+                        print(f"[!] Row field '{row_field}' tidak ditemukan di pivot '{pivot.get('name')}', melewatkan.")
+                        continue
                     pf.Orientation = c.xlRowField
                     pf.Position = i
+
+                    if pivot.get("hide_blank"):
+                        hide_blank_in_pivot_field(pf)
 
                     # ganti "Row Labels" jadi nama field aslinya
                     try:
@@ -254,9 +301,15 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
                         
                 # columns
                 for i, col_field in enumerate(pivot.get("columns", []), start=1):
-                    pf = pt.PivotFields(col_field)
+                    pf = safe_get_pivot_field(pt, col_field, debug=debug)
+                    if pf is None:
+                        print(f"[!] Column field '{col_field}' tidak ditemukan di pivot '{pivot.get('name')}', melewatkan.")
+                        continue
                     pf.Orientation = c.xlColumnField
                     pf.Position = i
+
+                    if pivot.get("hide_blank"):
+                        hide_blank_in_pivot_field(pf)
 
                     # --- jika kolom tanggal, group per bulan ---
                     hdr = str(col_field).upper()
@@ -269,12 +322,18 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
                 for i, flt in enumerate(pivot.get("filters", []), start=1):
                     if isinstance(flt, str):
                         # mode lama: cuma field
-                        pf = pt.PivotFields(flt)
+                        pf = safe_get_pivot_field(pt, flt, debug=debug)
+                        if pf is None:
+                            print(f"[!] Filter field '{flt}' tidak ditemukan, melewatkan.")
+                            continue
                         pf.Orientation = c.xlPageField
                         pf.Position = i
                     elif isinstance(flt, dict):
                         # mode baru: ada field + value
-                        pf = pt.PivotFields(flt["field"])
+                        pf = safe_get_pivot_field(pt, flt["field"], debug=debug)
+                        if pf is None:
+                            print(f"[!] Filter field '{flt.get('field')}' tidak ditemukan, melewatkan.")
+                            continue
                         pf.Orientation = c.xlPageField
                         pf.Position = i
                         try:
@@ -284,7 +343,10 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
 
                 # values
                 for val in pivot.get("values", []):
-                    field = pt.PivotFields(val["field"])
+                    field = safe_get_pivot_field(pt, val["field"], debug=debug)
+                    if field is None:
+                        print(f"[!] Value field '{val.get('field')}' tidak ditemukan, melewatkan.")
+                        continue
                     fn = val.get("func", "sum").lower()
                     caption = val.get("name") or val.get("caption") or f"{fn.title()} of {val['field']}"
 

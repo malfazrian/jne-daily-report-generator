@@ -538,10 +538,37 @@ def add_cust_name(df: pd.DataFrame) -> pd.DataFrame:
         df = df.rename(columns={"GROUPING_SHIPPER": "CUST_NAME"})
     return df
 
-def add_reason_undel(df: pd.DataFrame) -> pd.DataFrame:
+def add_reason_undel(df: pd.DataFrame, ref=r"\\192.168.9.76\D\RYAN\1. References\Table Reference.xlsx") -> pd.DataFrame:
     df = df.copy()
-    if "REASON RETURN" in df.columns:
-        df = df.rename(columns={"REASON RETURN": "REASON UNDEL"})
+
+    try:
+        ref_df = pd.read_excel(ref, sheet_name="Coding Undel")
+
+        # Validasi kolom
+        if not {"Coding Undel", "Remark_Bahasa"}.issubset(ref_df.columns):
+            print("⚠️ Kolom referensi tidak lengkap")
+            return df
+
+        # Normalize key (biar join aman)
+        df["CODING_UNDEL"] = df["CODING_UNDEL"].astype(str).str.strip()
+        ref_df["Coding Undel"] = ref_df["Coding Undel"].astype(str).str.strip()
+
+        # Merge
+        df = df.merge(
+            ref_df[["Coding Undel", "Remark_Bahasa"]],
+            how="left",
+            left_on="CODING_UNDEL",
+            right_on="Coding Undel"
+        )
+
+        df["REASON UNDEL"] = df["Remark_Bahasa"]
+
+        # Cleanup
+        df.drop(columns=["Coding Undel", "Remark_Bahasa"], inplace=True, errors="ignore")
+
+    except Exception as e:
+        print(f"Error in add_reason_undel: {e}")
+    
     return df
 
 def add_periode(df: pd.DataFrame, debug=False) -> pd.DataFrame:

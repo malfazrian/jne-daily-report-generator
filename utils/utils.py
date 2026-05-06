@@ -358,8 +358,19 @@ pivot_status_by_periode = [
 pivot_aj_car = [
     {
         "name": "AllSummary",
-        "dest": "A2",
-        "rows": ["AJ Car Status", "KETERANGAN AJ CAR", "REASON RETURN"],
+        "dest": "B2",
+        "rows": ["AJ Car Status", "KETERANGAN AJ CAR", "CODING_UNDEL", "REASON UNDEL"],
+        "columns": [],
+        "filters": [],
+        "values": [
+            {"field": "AWB", "name": "Total", "func": "count"}
+        ]
+    },
+    {
+        "name": "ReasonReturnSummary",
+        "dest": "H2",
+        "rows": ["REASON UNDEL"],
+        "hide_blank": True,
         "columns": [],
         "filters": [],
         "values": [
@@ -368,12 +379,22 @@ pivot_aj_car = [
     },
     {
         "name": "StatusbyTglEntry",
-        "dest": "E2",
+        "dest": "L2",
         "rows": ["TGL_ENTRY"],
         "columns": ["AJ Car Status"],
         "filters": [],
         "values": [
             {"field": "AWB", "name": "Total", "func": "count"}
+        ]
+    },
+    {
+        "name": "StatusbyTglEntryPercent",
+        "dest": "T2",
+        "rows": ["TGL_ENTRY"],
+        "columns": ["AJ Car Status"],
+        "filters": [],
+        "values": [
+            {"field": "AWB", "name": "% of Row Total", "func": "count", "as_percentage": True, "percentage_of": "row"}
         ]
     }
 ]
@@ -613,3 +634,88 @@ pivot_rodamas = [
         ]
     }
 ]
+
+pivot_template_zilong = [
+        {
+            "name": "PivotStatusZilong",
+            "dest": "B2",
+            "rows": ["STATUS_POD"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"}
+            ]
+        },
+        {
+            "name": "PivotZonaZilong",
+            "dest": "B13",
+            "rows": ["ZONA"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"},
+            ]
+        },
+        {
+            "name": "PivotCustomerNameZilong",
+            "dest": "E2",
+            "rows": ["CUST_NAME"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"}
+            ]
+        },
+        {
+            "name": "PivotRegionalZilong",
+            "dest": "E12",
+            "rows": ["REGIONAL"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"}
+            ]
+        },
+        {
+            "name": "PivotCarrer1stZilong",
+            "dest": "H2",
+            "rows": ["CAREER_1ST"],
+            "columns": [],
+            "hide_blank": True,
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"}
+            ]
+        },
+        {
+            "name": "PivotWilayahZilong",
+            "dest": "H12",
+            "rows": ["WILAYAH"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"}
+            ]
+        },
+        {
+            "name": "PivotCarrerPODZilong",
+            "dest": "K2",
+            "rows": ["CARRER_POD"],
+            "columns": [],
+            "hide_blank": True,
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"}
+            ]
+        },
+        {
+            "name": "PivotPeriodeZilong",
+            "dest": "K12",
+            "rows": ["TGL_ENTRY"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"}
+            ]
+        }
+    ]

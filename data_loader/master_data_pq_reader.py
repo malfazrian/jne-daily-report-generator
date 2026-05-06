@@ -10,7 +10,7 @@ import openpyxl
 from openpyxl.styles import Border, Side, PatternFill
 from data_transform.add_columns import (
     add_address, add_status_pod_c01, add_cust_name, add_coding_delivery, add_eta,
-    add_grouping_late, add_origin_city, add_periode, add_province_zipcode,
+    add_grouping_late, add_origin_city, add_periode, add_province_zipcode, add_reason_undel,
     add_status_latlong, add_date_time_received, add_grouping_sla, add_PIC,
     add_SBS, add_dept_PZC, add_AJCar_status, add_is_close, add_reason, add_no,
     add_reason_last_attempt, add_date_receive_request, add_descr_return, add_rodamas_cols,
@@ -110,6 +110,7 @@ TRANSFORM_FUNCS = {
     "DATE_1ST_ATTEMPT": lambda df, ref: fix_empty_date_1st_attempt(df),
     "3 LC DEST FW": lambda df, ref: add_3lc_dest_fw(df),
     "WEIGHT": lambda df, ref: add_rounded_weight(df),
+    "REASON UNDEL": lambda df, ref: add_reason_undel(df, ref),
 }
 
 STATUS_POD_FULL_INPUT_COLS = [
@@ -149,6 +150,7 @@ TRANSFORM_INPUT_COLS = {
     "REASON_1ST_ATTEMPT": ["RESULT_1ST_ATTEMPT"],
     "DATE_1ST_ATTEMPT": ["DATE_1ST_ATTEMPT", "STATUS_POD", "TGL_RECEIVED"],
     "3 LC DEST FW": ["DEST_FW"],
+    "REASON UNDEL": ["CODING_UNDEL"]
 }
 
 TRANSFORM_GROUP_INPUT_COLS = {
@@ -160,7 +162,7 @@ TRANSFORM_GROUP_INPUT_COLS = {
     "UOB_GROUP": ["REFNO_UOB", "STATUS_POD", "RECEIVED/REASON", "CODING", "AWB", "REASON RETURN", "TGL_RECEIVED"],
     "YOUNG_LIVING_GROUP": ["AWB", "NOREF", "AMOUNT", "WEIGHT", "PROVINSI", "ETD", "TGL_RECEIVED", "TGL_ENTRY", "STATUS_POD"],
     "FIX_CONTACT_NOTELP_GROUP": ["CONTACT", "NOTELP"],
-    "AGING_CARRER_GROUP": ["DATE_1ST_ATTEMPT", "STATUS_POD", "TGL_RECEIVED", "DATE_LAST_ATTEMPT", "CODING", "REASON RETURN"]
+    "AGING_CARRER_GROUP": ["TGL_ENTRY", "1ST_ATTEMPT_DATE", "TGL_RECEIVED", "ETD", "STATUS_POD"]
 }
 
 # daftar kolom yang dibutuhkan (preserve)
