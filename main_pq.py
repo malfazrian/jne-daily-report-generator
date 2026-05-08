@@ -89,6 +89,14 @@ def _sanitize_dirname(name: str) -> str:
     return cleaned or "UNKNOWN"
 
 
+def _criteria_label(criteria: dict) -> str:
+    return str(
+        criteria.get("save_as")
+        or criteria.get("group_name")
+        or "UNKNOWN"
+    )
+
+
 def load_industry_map(reference_path: str, sheet_name: str = "ACC & SHIPPER GROUPING") -> dict:
     try:
         df = pd.read_excel(reference_path, sheet_name=sheet_name, dtype=str)
@@ -123,6 +131,7 @@ def process_one_category(args, bypass_history=False):
     Tidak boleh edit file / pivot di sini
     """
     category, criteria_list, chunk_idx, chunk_total, output_root = args
+    failed_projects = []
 
     try:
         print(
@@ -132,22 +141,36 @@ def process_one_category(args, bypass_history=False):
         )
 
         for crit in criteria_list:
-            industry = _sanitize_dirname(crit.get("industry", "UNKNOWN"))
-            output_dir_industry = os.path.join(output_root, industry)
-            os.makedirs(output_dir_industry, exist_ok=True)
+            project_name = _criteria_label(crit)
+            try:
+                industry = _sanitize_dirname(crit.get("industry", "UNKNOWN"))
+                output_dir_industry = os.path.join(output_root, industry)
+                os.makedirs(output_dir_industry, exist_ok=True)
 
-            ok = get_data_from_master_pq(
-                base_dir=base_dir,
-                criteria=crit,
-                category=category,
-                output_dir=output_dir_industry,
-                reference_path=table_reference_path,
-                manuals_path=manuals_path,
-                debug=False,
-                bypass_history=bypass_history
-            )
-            if ok is False:
-                raise RuntimeError(f"Ada report gagal di category {category}")
+                ok = get_data_from_master_pq(
+                    base_dir=base_dir,
+                    criteria=crit,
+                    category=category,
+                    output_dir=output_dir_industry,
+                    reference_path=table_reference_path,
+                    manuals_path=manuals_path,
+                    debug=False,
+                    bypass_history=bypass_history
+                )
+                if ok is False:
+                    failed_projects.append(project_name)
+                    print(f"⚠️ Project gagal/skip: {category} | {project_name}")
+
+            except Exception as e:
+                failed_projects.append(f"{project_name}: {e}")
+                print(f"❌ Project error: {category} | {project_name}: {e}")
+
+        if failed_projects:
+            shown_failures = ", ".join(failed_projects[:10])
+            remaining_count = len(failed_projects) - 10
+            if remaining_count > 0:
+                shown_failures = f"{shown_failures}, ... (+{remaining_count} lainnya)"
+            return category, True, f"{len(failed_projects)} project gagal/skip: {shown_failures}"
 
         return category, True, None
 
@@ -206,7 +229,7 @@ if __name__ == "__main__":
     # PARALLEL: GET DATA ONLY
     # =========================
 
-    bypass_history = True
+    bypass_history = False
 
     print(f"\n🚀 Parallel get_data_from_master_pq | workers={MAX_WORKERS}\n")
  
@@ -214,7 +237,7 @@ if __name__ == "__main__":
     for category, criteria_list in criteria_by_category.items():
         if not criteria_list:
             continue
-        chunk_size = max(1, math.ceil(len(criteria_list) / MAX_WORKERS))
+        chunk_size = max(2, math.ceil(len(criteria_list) / MAX_WORKERS))
         chunks = list(_chunk_list(criteria_list, chunk_size))
         chunk_total = len(chunks)
         for idx, chunk in enumerate(chunks):
@@ -227,6 +250,8 @@ if __name__ == "__main__":
             category, ok, err = fut.result()
             if ok:
                 print(f"✅ Category {category} selesai")
+                if err:
+                    print(f"⚠️ Category {category} selesai dengan catatan: {err}")
             else:
                 print(f"❌ Category {category} gagal: {err}")
 
