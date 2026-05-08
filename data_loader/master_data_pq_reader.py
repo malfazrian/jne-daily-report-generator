@@ -319,6 +319,97 @@ def _resolve_col_case_insensitive(df: pd.DataFrame, col_name: str | None) -> str
     return None
 
 
+def _normalize_awb_key(series: pd.Series) -> pd.Series:
+    return (
+        series.astype(str)
+        .str.strip()
+        .str.lstrip("'")
+        .str.replace(r"\s+", "", regex=True)
+        .str.upper()
+    )
+
+
+def _clean_manual_values(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for col in df.columns:
+        df[col] = df[col].astype("string").str.strip()
+    return df.replace({"": pd.NA, "nan": pd.NA, "NaN": pd.NA, "None": pd.NA, "<NA>": pd.NA})
+
+
+def _apply_manual_overrides(
+    df: pd.DataFrame,
+    manuals_path: str,
+    *,
+    debug: bool = False,
+    announce: bool = True,
+    stage: str = "",
+) -> pd.DataFrame:
+    manuals_df = pd.read_csv(manuals_path, dtype=str)
+    manuals_df.columns = [str(c).strip().upper() for c in manuals_df.columns]
+
+    if "AWB" not in manuals_df.columns:
+        print("⚠️ manuals.csv harus punya kolom 'AWB'")
+        return df
+    if "AWB" not in df.columns:
+        print("⚠️ Data master tidak punya kolom 'AWB', skip manuals.csv override")
+        return df
+
+    manuals_df = _clean_manual_values(manuals_df)
+    manuals_df["_awb_key"] = _normalize_awb_key(manuals_df["AWB"])
+    manuals_df = manuals_df[manuals_df["_awb_key"].notna() & (manuals_df["_awb_key"] != "")]
+
+    manuals_df_deduped = manuals_df.drop(columns=["AWB"]).groupby("_awb_key", as_index=False).agg(
+        lambda x: x.dropna().iloc[0] if len(x.dropna()) > 0 else pd.NA
+    )
+
+    duplicate_count = len(manuals_df) - len(manuals_df_deduped)
+    if announce and duplicate_count > 0:
+        if debug:
+            print(f"[DEBUG] Found {duplicate_count} duplicate AWB entries, deduplicated to {len(manuals_df_deduped)}")
+        print(f"📋 Deduped {duplicate_count} duplicate AWB entries dari manuals.csv")
+
+    manuals_cols = [c for c in manuals_df_deduped.columns if c != "_awb_key"]
+    if not manuals_cols:
+        return df
+
+    override_cols = {col: f"__manual_{col}" for col in manuals_cols}
+    manuals_override = manuals_df_deduped[["_awb_key"] + manuals_cols].rename(columns=override_cols)
+
+    df = df.copy()
+    df["_awb_key"] = _normalize_awb_key(df["AWB"])
+    df = df.merge(manuals_override, on="_awb_key", how="left")
+    df.drop(columns=["_awb_key"], inplace=True, errors="ignore")
+
+    applied_counts = {}
+    for col in manuals_cols:
+        manual_col = override_cols[col]
+        if manual_col not in df.columns:
+            continue
+
+        manual_values = df[manual_col]
+        mask = manual_values.notna()
+        if col not in df.columns:
+            df[col] = pd.NA
+        df.loc[mask, col] = manual_values.loc[mask]
+
+        # STATUS_POD is later rebuilt from STATUS_POD_UPDATE by add_status_pod_c01().
+        # Keep both in sync so manual corrections survive that transform too.
+        if col == "STATUS_POD" and "STATUS_POD_UPDATE" in df.columns:
+            df.loc[mask, "STATUS_POD_UPDATE"] = manual_values.loc[mask]
+
+        if mask.any():
+            applied_counts[col] = int(mask.sum())
+        df.drop(columns=[manual_col], inplace=True)
+
+    if debug and applied_counts:
+        stage_label = f" ({stage})" if stage else ""
+        print(f"[DEBUG] Manual overrides applied{stage_label}: {applied_counts}")
+    if announce:
+        print(f"🔄 Data berhasil di-override dari {manuals_path} ({len(manuals_df_deduped)} unique AWBs)")
+
+    return df
+
+
 _KEY_FORMAT_FALLBACK_COLS = ["GOODS_DESCR", "NOTICE", "INTRUCTION", "NOREF"]
 
 
@@ -1080,38 +1171,9 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
             _manuals_path = crit.get("manuals_path") or manuals_path
             if crit.get("edit_file", {}).get("replace_values") and _manuals_path and os.path.exists(_manuals_path):
                 try:
-                    if debug: print(f"[DEBUG] Loading manuals.csv from: {_manuals_path}")
-                    manuals_df = pd.read_csv(_manuals_path, dtype=str)
-                    if "AWB" not in manuals_df.columns:
-                        print("⚠️ manuals.csv harus punya kolom 'AWB'")
-                    else:
-                        # Normalize AWB BEFORE groupby so whitespace/case variants merge properly
-                        _norm = lambda s: s.astype(str).str.strip().str.lstrip("'").str.replace(r"\s+", "", regex=True).str.upper()
-                        manuals_df["_awb_key"] = _norm(manuals_df["AWB"])
-                        manuals_df_deduped = manuals_df.drop(columns=["AWB"]).groupby("_awb_key", as_index=False).agg(
-                            lambda x: x.dropna().iloc[0] if len(x.dropna()) > 0 else pd.NA
-                        )
-                        duplicate_count = len(manuals_df) - len(manuals_df_deduped)
-                        if duplicate_count > 0:
-                            if debug: print(f"[DEBUG] Found {duplicate_count} duplicate AWB entries, deduplicated to {len(manuals_df_deduped)}")
-                            print(f"📋 Deduped {duplicate_count} duplicate AWB entries dari manuals.csv")
-                        df["_awb_key"] = _norm(df["AWB"])
-                        df["_awb_key"] = _norm(df["AWB"])
-                        manuals_cols = [c for c in manuals_df_deduped.columns if c != "_awb_key"]
-                        df = df.merge(
-                            manuals_df_deduped[["_awb_key"] + manuals_cols],
-                            on="_awb_key",
-                            how="left",
-                            suffixes=("", "_manual")
-                        )
-                        df.drop(columns=["_awb_key"], inplace=True, errors="ignore")
-                        for col in manuals_cols:
-                            manual_col = col + "_manual"
-                            if manual_col in df.columns:
-                                df[col] = df[manual_col].combine_first(df.get(col, pd.NA))
-                                df.drop(columns=[manual_col], inplace=True)
-                        if debug: print(f"[DEBUG] Override done. manuals columns merged.")
-                        print(f"🔄 Data berhasil di-override dari {_manuals_path} ({len(manuals_df_deduped)} unique AWBs)")
+                    if debug:
+                        print(f"[DEBUG] Loading manuals.csv from: {_manuals_path}")
+                    df = _apply_manual_overrides(df, _manuals_path, debug=debug, announce=True, stage="pre-transform")
                 except Exception as e:
                     print(f"⚠️ Gagal replace values dari manuals.csv: {e}")
 
@@ -1234,6 +1296,18 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 for col in selected_cols:
                     if col not in df_filtered.columns:
                         df_filtered[col] = ""
+
+                if crit.get("edit_file", {}).get("replace_values") and _manuals_path and os.path.exists(_manuals_path):
+                    try:
+                        df_filtered = _apply_manual_overrides(
+                            df_filtered,
+                            _manuals_path,
+                            debug=debug,
+                            announce=False,
+                            stage="post-transform",
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Gagal apply ulang manuals.csv setelah transform: {e}")
 
             # apply filter_cols rules (legacy format — implicit AND)
             if filter_cols:
