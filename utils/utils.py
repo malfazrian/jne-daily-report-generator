@@ -138,10 +138,9 @@ def enrich_criteria_with_latest_id_account(criteria_list, ref_path, debug=False)
 
     Aturan:
     - Jika criteria tidak punya id_account -> pakai semua CUST_ID dari group_name.
-    - Jika criteria punya id_account dan masih subset valid dari referensi -> pertahankan
-      (berguna untuk report yang memang split by subset account).
-    - Jika criteria punya id_account tapi tidak cocok referensi terbaru -> override
-      dengan semua CUST_ID dari group_name.
+    - Jika criteria punya id_account -> selalu pertahankan nilai eksplisit dari
+      list config. Ini penting untuk report subset account; reference hanya
+      boleh mengisi ID yang kosong, bukan mengganti pilihan manual user.
     """
 
     ref_path = Path(ref_path)
@@ -211,23 +210,20 @@ def enrich_criteria_with_latest_id_account(criteria_list, ref_path, debug=False)
                 s = f"'{s}"
             existing_ids.append(s)
 
-        final_ids = latest_ids
-        reason = "mapped_from_group"
-
         if existing_ids:
-            latest_set = set(latest_ids)
-            existing_set = set(existing_ids)
-
-            if latest_ids and existing_set.issubset(latest_set):
-                final_ids = existing_ids
-                reason = "kept_existing_subset"
-            elif latest_ids and not existing_set.issubset(latest_set):
-                final_ids = latest_ids
-                reason = "override_outdated_existing"
+            final_ids = existing_ids
+            if latest_ids:
+                latest_set = set(latest_ids)
+                existing_set = set(existing_ids)
+                if existing_set.issubset(latest_set):
+                    reason = "kept_explicit_subset"
+                else:
+                    reason = "kept_explicit_not_in_reference"
             else:
-                # group_name belum ada di referensi: tetap pakai existing agar tidak kosong total
-                final_ids = existing_ids
-                reason = "fallback_existing_no_group_match"
+                reason = "kept_explicit_no_group_match"
+        else:
+            final_ids = latest_ids
+            reason = "mapped_from_group"
 
         new_entry["id_account"] = final_ids
         enriched.append(new_entry)

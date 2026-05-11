@@ -996,6 +996,37 @@ def add_coding_delivery(df: pd.DataFrame, ref=r"\\192.168.9.76\D\RYAN\1. Referen
 
     return df
 
+def add_coding_remarks(df: pd.DataFrame, ref=r"\\192.168.9.76\D\RYAN\1. References\Table Reference.xlsx") -> pd.DataFrame:
+    df = df.copy()
+    
+    if "CODING" not in df.columns:
+        print("⚠️ Kolom 'CODING' tidak ditemukan, tidak bisa menambahkan CODING_REMARKS.")
+        return df
+
+    try:
+        ref_df = pd.read_excel(ref, sheet_name="STATUS_CCC", header=1)
+        if not {"CODE", "STATUS"}.issubset(ref_df.columns):
+            print("⚠️ Sheet STATUS_CCC tidak memiliki kolom CODE atau STATUS.")
+            return df
+
+        # Buat kolom default kosong
+        df["CODING_REMARKS"] = None  
+
+        # Ambil semua baris dengan CODING yang tidak kosong
+        df_d = df.loc[df["CODING"].notnull()].merge(
+            ref_df[["CODE", "STATUS"]],
+            how="left",
+            left_on="CODING",
+            right_on="CODE"
+        )
+
+        df.loc[df["CODING"].notnull(), "CODING_REMARKS"] = df_d["STATUS"].values
+
+    except Exception as e:
+        print(f"⚠️ Gagal menambahkan informasi CODING_REMARKS: {e}")
+
+    return df
+
 def resolve_col(df, options, default=pd.NA):
     """
     Cari nama kolom dari daftar `options` yang ada di df.

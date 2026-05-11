@@ -133,8 +133,9 @@ Setiap item di `criteria_lists` adalah 1 konfigurasi report untuk 1 customer/pro
 - `selected_cols` (wajib): daftar kolom final yang disimpan ke output.
 - `save_as` (opsional): override nama file output.
 - `pic_frontline` (opsional): nama contact penerima file (string atau list).
-- `period` (opsional): saat ini dipakai untuk mode yearly (`"year"`).
+- `period` (opsional): dipakai untuk mode yearly (`"year"`). Gunakan `"last_n_months"` / `"last_months"` / `"month_range"` bila ingin `jumlah_bulan` disimpan sebagai 1 file tanpa split per bulan.
 - `jumlah_bulan` (opsional): jumlah bulan ke belakang untuk pengambilan data.
+- `split_by_month` (opsional, bool): default `true` jika `jumlah_bulan` diisi. Set `false` agar rentang beberapa bulan disimpan sebagai 1 file.
 
 ### Field Filter, Split, dan Output
 

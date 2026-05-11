@@ -15,7 +15,7 @@ from data_transform.add_columns import (
     add_SBS, add_dept_PZC, add_AJCar_status, add_is_close, add_reason, add_no,
     add_reason_last_attempt, add_date_receive_request, add_descr_return, add_rodamas_cols,
     add_update_time, add_uob_pickup_data_cols, add_sociolla_cols, add_grouping_status, add_aging_carrer,
-    add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw, add_rounded_weight, add_bni_kategori
+    add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw, add_rounded_weight, add_bni_kategori, add_coding_remarks
 )
 from data_transform.parse_dates import normalize_all_dates
 from .ref_data_loader import load_cust_ref
@@ -111,7 +111,8 @@ TRANSFORM_FUNCS = {
     "3 LC DEST FW": lambda df, ref: add_3lc_dest_fw(df),
     "WEIGHT": lambda df, ref: add_rounded_weight(df),
     "REASON UNDEL": lambda df, ref: add_reason_undel(df, ref),
-    "BNI_KATEGORI": lambda df, ref: add_bni_kategori(df)
+    "BNI_KATEGORI": lambda df, ref: add_bni_kategori(df),
+    "CODING_REMARKS": lambda df, ref: add_coding_remarks(df)
 }
 
 STATUS_POD_FULL_INPUT_COLS = [
@@ -152,7 +153,8 @@ TRANSFORM_INPUT_COLS = {
     "DATE_1ST_ATTEMPT": ["DATE_1ST_ATTEMPT", "STATUS_POD", "TGL_RECEIVED"],
     "3 LC DEST FW": ["DEST_FW"],
     "REASON UNDEL": ["CODING_UNDEL"],
-    "BNI_KATEGORI": ["GOODS_DESCR"]
+    "BNI_KATEGORI": ["GOODS_DESCR"],
+    "CODING_REMARKS": ["CODING"]
 }
 
 TRANSFORM_GROUP_INPUT_COLS = {
@@ -951,6 +953,13 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
             ref_sheet = cust_ref.get("ref_sheet", [])
             col_order = cust_ref.get("col_order")
             period = (crit.get("period") or "").strip().lower()
+            split_by_month_param = crit.get("split_by_month")
+            if split_by_month_param is None:
+                split_by_month = period not in {"last_n_months", "last_months", "month_range"}
+            elif isinstance(split_by_month_param, str):
+                split_by_month = split_by_month_param.strip().lower() not in {"0", "false", "no", "n", "off"}
+            else:
+                split_by_month = bool(split_by_month_param)
 
             print(f"\n🔍 Processing: {saved_as} (group: {group_name})")
 
@@ -1398,7 +1407,7 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 if split_by_id and "ID_ACCOUNT" in df_segment.columns:
                     for id_acc, df_id in df_segment.groupby("ID_ACCOUNT"):
                         clean_id_acc = str(id_acc).lstrip("'")
-                        if jumlah_bulan and ACTIVE_DATE_COL in df_id.columns:
+                        if split_by_month and jumlah_bulan and ACTIVE_DATE_COL in df_id.columns:
                             df_id = df_id.copy()
                             df_id["BULAN_STR"] = df_id[ACTIVE_DATE_COL].dt.strftime("%B").str.upper()
                             for bulan_eng, df_bln in df_id.groupby("BULAN_STR"):
@@ -1433,7 +1442,7 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 if split_by_col_val and split_by_col_val in df_segment.columns:
                     for val, df_val in df_segment.groupby(split_by_col_val):
                         clean_val = str(val).replace("/", "-").replace("\\", "-").strip()
-                        if jumlah_bulan and ACTIVE_DATE_COL in df_val.columns:
+                        if split_by_month and jumlah_bulan and ACTIVE_DATE_COL in df_val.columns:
                             df_val = df_val.copy()
                             df_val["BULAN_STR"] = df_val[ACTIVE_DATE_COL].dt.strftime("%B").str.upper()
                             for bulan_eng, df_bln in df_val.groupby("BULAN_STR"):
@@ -1491,7 +1500,7 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                     mark_processed_today(local_process_key)
                     return
 
-                if jumlah_bulan and ACTIVE_DATE_COL in df_segment.columns:
+                if split_by_month and jumlah_bulan and ACTIVE_DATE_COL in df_segment.columns:
                     df_segment = df_segment.copy()
                     df_segment["BULAN_STR"] = df_segment[ACTIVE_DATE_COL].dt.strftime("%B").str.upper()
                     for bulan_eng, df_bln in df_segment.groupby("BULAN_STR"):
