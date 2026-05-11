@@ -2280,3 +2280,25 @@ def add_rodamas_cols(df: pd.DataFrame) -> pd.DataFrame:
     df["CUSTOMER"] = "HO"
 
     return df
+
+def add_bni_kategori(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    if "GOODS_DESCR" not in df.columns:
+        print("⚠️ Kolom 'GOODS_DESCR' tidak ditemukan, tidak bisa menambahkan KATEGORI BNI.")
+        return df
+
+    pattern = r"ULANG TAHUN|ULTAH|UCAPAN"
+
+    mask = (
+        df["GOODS_DESCR"]
+        .fillna("")
+        .astype(str)
+        .str.upper()
+        .str.contains(pattern, regex=True, na=False)
+    )
+
+    df["BNI_KATEGORI"] = "REGULER"
+    df.loc[mask, "BNI_KATEGORI"] = "ATENSI ULANG TAHUN"
+
+    return df

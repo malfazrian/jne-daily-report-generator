@@ -15,7 +15,7 @@ from data_transform.add_columns import (
     add_SBS, add_dept_PZC, add_AJCar_status, add_is_close, add_reason, add_no,
     add_reason_last_attempt, add_date_receive_request, add_descr_return, add_rodamas_cols,
     add_update_time, add_uob_pickup_data_cols, add_sociolla_cols, add_grouping_status, add_aging_carrer,
-    add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw, add_rounded_weight
+    add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw, add_rounded_weight, add_bni_kategori
 )
 from data_transform.parse_dates import normalize_all_dates
 from .ref_data_loader import load_cust_ref
@@ -111,6 +111,7 @@ TRANSFORM_FUNCS = {
     "3 LC DEST FW": lambda df, ref: add_3lc_dest_fw(df),
     "WEIGHT": lambda df, ref: add_rounded_weight(df),
     "REASON UNDEL": lambda df, ref: add_reason_undel(df, ref),
+    "BNI_KATEGORI": lambda df, ref: add_bni_kategori(df)
 }
 
 STATUS_POD_FULL_INPUT_COLS = [
@@ -150,7 +151,8 @@ TRANSFORM_INPUT_COLS = {
     "REASON_1ST_ATTEMPT": ["RESULT_1ST_ATTEMPT"],
     "DATE_1ST_ATTEMPT": ["DATE_1ST_ATTEMPT", "STATUS_POD", "TGL_RECEIVED"],
     "3 LC DEST FW": ["DEST_FW"],
-    "REASON UNDEL": ["CODING_UNDEL"]
+    "REASON UNDEL": ["CODING_UNDEL"],
+    "BNI_KATEGORI": ["GOODS_DESCR"]
 }
 
 TRANSFORM_GROUP_INPUT_COLS = {
@@ -296,6 +298,21 @@ def insert_insurance_id(cols):
         idx = cols.index(last_std) + 1
         return cols[:idx] + ["INSURANCE_ID"] + cols[idx:]
     return ["INSURANCE_ID"] + cols
+
+def dedupe_columns_preserve_order(cols):
+    unique_cols = []
+    seen = set()
+    duplicates = []
+
+    for col in cols:
+        key = str(col).strip().upper()
+        if key in seen:
+            duplicates.append(str(col))
+            continue
+        seen.add(key)
+        unique_cols.append(col)
+
+    return unique_cols, duplicates
 
 def strip_urls_from_df(df: pd.DataFrame) -> pd.DataFrame:
     """Remove URL protocol prefix so openpyxl won't treat them as hyperlinks."""
@@ -1271,6 +1288,12 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
 
             if selected_cols:
                 selected_cols = insert_insurance_id(selected_cols)
+                selected_cols, duplicate_selected_cols = dedupe_columns_preserve_order(selected_cols)
+                if duplicate_selected_cols and debug:
+                    print(
+                        f"[DEBUG] Duplicate selected_cols skipped for {saved_as}: "
+                        f"{duplicate_selected_cols}"
+                    )
                 if "INSURANCE_ID" not in df_filtered.columns:
                     df_filtered["INSURANCE_ID"] = ""
                 needed_cols = set(selected_cols)
