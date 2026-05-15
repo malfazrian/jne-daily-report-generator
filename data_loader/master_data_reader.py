@@ -133,6 +133,14 @@ def save_with_shortdate(df: pd.DataFrame, output_path="output.xlsx"):
     # kolom yang tidak boleh di-parse jadi datetime
     exclude_cols = ["status_pod_update"]
 
+    def _is_date_column_name(col) -> bool:
+        col_lower = str(col).strip().lower()
+        if col_lower in exclude_cols:
+            return False
+        if any(token in col_lower for token in ["overday", "tgl merah"]):
+            return False
+        return any(token in col_lower for token in ["tgl", "date"])
+
     # konversi numeric columns agar tidak berubah string
     NUMERIC_COLS = ["QTY", "WEIGHT", "AMOUNT", "BILNOTE_AMOUNT"]
     for col in NUMERIC_COLS:
@@ -140,7 +148,7 @@ def save_with_shortdate(df: pd.DataFrame, output_path="output.xlsx"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
     
     # pastikan kolom tanggal memang datetime (defensive)
-    for col in [c for c in df.columns if any(k in c.lower() for k in ["tgl", "date"]) and c.lower() not in exclude_cols]:
+    for col in [c for c in df.columns if _is_date_column_name(c)]:
         try:
             df[col] = pd.to_datetime(df[col], errors='coerce')
         except Exception:

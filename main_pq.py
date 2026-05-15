@@ -93,20 +93,84 @@ def _criteria_label(criteria: dict) -> str:
     return str(
         criteria.get("save_as")
         or criteria.get("group_name")
+        or criteria.get("groups_name")
         or "UNKNOWN"
     )
+
+
+def expand_grouped_report_criteria(criteria_list):
+    """
+    Ubah criteria dengan format:
+        {"groups_name": "Nama File", "reports": [{"group_name": "..."}]}
+    menjadi beberapa criteria sheet yang semuanya disimpan ke workbook yang sama.
+    """
+    expanded = []
+
+    for criteria in criteria_list:
+        reports = criteria.get("reports")
+        if not reports:
+            expanded.append(criteria)
+            continue
+
+        report_file_name = (
+            criteria.get("save_as")
+            or criteria.get("groups_name")
+            or criteria.get("group_name")
+        )
+        if not report_file_name:
+            raise ValueError("Criteria dengan 'reports' wajib punya 'groups_name' atau 'save_as'.")
+
+        parent_defaults = {
+            key: value
+            for key, value in criteria.items()
+            if key not in {"reports", "group_name", "groups_name", "save_as"}
+        }
+
+        for report in reports:
+            child = parent_defaults.copy()
+            child.update(report)
+            child.setdefault("selected_cols", criteria.get("selected_cols"))
+            child.setdefault("jumlah_bulan", criteria.get("jumlah_bulan"))
+            child.setdefault("period", criteria.get("period"))
+            child["move_to_sheet_of_file"] = report_file_name
+            child["move_to_sheet_name"] = criteria.get("sheet_name") or report_file_name
+            child["append_to_sheet"] = True
+            child.setdefault("save_as", report.get("save_as") or report.get("group_name"))
+            child["_combined_report_name"] = report_file_name
+            child["_combined_report_industry"] = criteria.get("industry") or "UNKNOWN"
+            expanded.append(child)
+
+    return expanded
+
+
+def reset_grouped_report_workbooks(criteria_list, output_root):
+    removed = set()
+    for crit in criteria_list:
+        target_name = crit.get("move_to_sheet_of_file")
+        if not target_name:
+            continue
+        industry = _sanitize_dirname(crit.get("industry", "UNKNOWN"))
+        target_file = os.path.join(output_root, industry, f"{target_name}.xlsx")
+        if target_file in removed or not os.path.exists(target_file):
+            continue
+        try:
+            os.remove(target_file)
+            removed.add(target_file)
+            print(f"[INFO] Reset grouped workbook: {target_file}")
+        except PermissionError:
+            print(f"⚠️ Tidak bisa reset grouped workbook karena sedang dibuka: {target_file}")
 
 
 def load_industry_map(reference_path: str, sheet_name: str = "ACC & SHIPPER GROUPING") -> dict:
     try:
         df = pd.read_excel(reference_path, sheet_name=sheet_name, dtype=str)
     except Exception as e:
-        print(f"⚠️ Gagal baca reference untuk industry: {e}")
+        print(f"âš ï¸ Gagal baca reference untuk industry: {e}")
         return {}
 
     df.columns = df.columns.str.upper().str.strip()
     if "BIG_GROUPING_CUST" not in df.columns or "CUST_INDUSTRY_NEW" not in df.columns:
-        print("⚠️ Kolom BIG_GROUPING_CUST / CUST_INDUSTRY_NEW tidak ditemukan")
+        print("âš ï¸ Kolom BIG_GROUPING_CUST / CUST_INDUSTRY_NEW tidak ditemukan")
         return {}
 
     df["BIG_GROUPING_CUST"] = (
@@ -159,11 +223,11 @@ def process_one_category(args, bypass_history=False):
                 )
                 if ok is False:
                     failed_projects.append(project_name)
-                    print(f"⚠️ Project gagal/skip: {category} | {project_name}")
+                    print(f"âš ï¸ Project gagal/skip: {category} | {project_name}")
 
             except Exception as e:
                 failed_projects.append(f"{project_name}: {e}")
-                print(f"❌ Project error: {category} | {project_name}: {e}")
+                print(f"âŒ Project error: {category} | {project_name}: {e}")
 
         if failed_projects:
             shown_failures = ", ".join(failed_projects[:10])
@@ -185,12 +249,14 @@ if __name__ == "__main__":
 
     removed_history_count = clean_old_process_history(days=14)
     if removed_history_count:
-        print(f"🧹 Hapus {removed_history_count} log process_history lama")
+        print(f"ðŸ§¹ Hapus {removed_history_count} log process_history lama")
 
     auto_update_project_reference()
 
+    criteria_lists_expanded = expand_grouped_report_criteria(criteria_lists)
+
     # --- enrich criteria ---
-    criteria_with_category = enrich_criteria_with_category(criteria_lists, ref_path)
+    criteria_with_category = enrich_criteria_with_category(criteria_lists_expanded, ref_path)
 
     # --- resolve latest id_account from reference by group_name ---
     criteria_with_category = enrich_criteria_with_latest_id_account(
@@ -201,8 +267,11 @@ if __name__ == "__main__":
     # --- enrich industry ---
     industry_map = load_industry_map(table_reference_path)
     for crit in criteria_with_category:
-        group_name = str(crit.get("group_name", "")).replace("\xa0", " ").strip().upper()
-        industry = industry_map.get(group_name) or "UNKNOWN"
+        if crit.get("_combined_report_name"):
+            industry = crit.get("_combined_report_industry") or "UNKNOWN"
+        else:
+            group_name = str(crit.get("group_name", "")).replace("\xa0", " ").strip().upper()
+            industry = industry_map.get(group_name) or "UNKNOWN"
         crit["industry"] = industry
 
     # --- cek UNKNOWN ---
@@ -214,7 +283,7 @@ if __name__ == "__main__":
         print("\n[WARNING] Ditemukan project kategori UNKNOWN:")
         for crit in unknowns:
             print(
-                f"   • group_name={crit.get('group_name', '')}, "
+                f"   â€¢ group_name={crit.get('group_name', '')}, "
                 f"id_account={','.join(crit.get('id_account', []))}"
             )
         print(">>> Update project_reference.csv agar tidak UNKNOWN <<<\n")
@@ -231,10 +300,34 @@ if __name__ == "__main__":
 
     bypass_history = False
 
-    print(f"\n🚀 Parallel get_data_from_master_pq | workers={MAX_WORKERS}\n")
+    print(f"Parallel get_data_from_master_pq | workers={MAX_WORKERS}\n")
  
-    tasks = []
+    combined_criteria_by_category = defaultdict(list)
+    normal_criteria_by_category = defaultdict(list)
     for category, criteria_list in criteria_by_category.items():
+        for crit in criteria_list:
+            if crit.get("move_to_sheet_of_file"):
+                combined_criteria_by_category[category].append(crit)
+            else:
+                normal_criteria_by_category[category].append(crit)
+
+    if combined_criteria_by_category:
+        print("\n[INFO] Proses grouped report (serial, 1 workbook 1 sheet gabungan)\n")
+        for category, criteria_list in combined_criteria_by_category.items():
+            reset_grouped_report_workbooks(criteria_list, output_dir)
+            _, ok, err = process_one_category(
+                (category, criteria_list, 0, 1, output_dir),
+                bypass_history=bypass_history,
+            )
+            if ok:
+                print(f"Grouped report category {category} selesai")
+                if err:
+                    print(f"Grouped report category {category} selesai dengan catatan: {err}")
+            else:
+                print(f"Grouped report category {category} gagal: {err}")
+
+    tasks = []
+    for category, criteria_list in normal_criteria_by_category.items():
         if not criteria_list:
             continue
         chunk_size = max(2, math.ceil(len(criteria_list) / MAX_WORKERS))
@@ -243,23 +336,24 @@ if __name__ == "__main__":
         for idx, chunk in enumerate(chunks):
             tasks.append((category, chunk, idx, chunk_total, output_dir))
 
-    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [executor.submit(process_one_category, t, bypass_history) for t in tasks]
+    if tasks:
+        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = [executor.submit(process_one_category, t, bypass_history) for t in tasks]
 
-        for fut in as_completed(futures):
-            category, ok, err = fut.result()
-            if ok:
-                print(f"✅ Category {category} selesai")
-                if err:
-                    print(f"⚠️ Category {category} selesai dengan catatan: {err}")
-            else:
-                print(f"❌ Category {category} gagal: {err}")
+            for fut in as_completed(futures):
+                category, ok, err = fut.result()
+                if ok:
+                    print(f"✅ Category {category} selesai")
+                    if err:
+                        print(f"⚠️ Category {category} selesai dengan catatan: {err}")
+                else:
+                    print(f"❌ Category {category} gagal: {err}")
 
     # =========================
     # SINGLE THREAD: EDIT FILE
     # =========================
 
-    print("\n🛠️ Proses edit file (SINGLE THREAD, AMAN PIVOT)\n")
+    print("Proses edit file (SINGLE THREAD, AMAN PIVOT)\n")
 
     all_file_list = []
 
@@ -267,6 +361,13 @@ if __name__ == "__main__":
         print(f"[INFO] Edit file category: {category}")
 
         try:
+            criteria_list = [
+                crit for crit in criteria_list
+                if not crit.get("move_to_sheet_of_file")
+            ]
+            if not criteria_list:
+                continue
+
             frontline_files = process_edit_file(
                 criteria_list,
                 output_dir,
@@ -282,7 +383,7 @@ if __name__ == "__main__":
             all_file_list.extend(file_list)
 
         except Exception as e:
-            print(f"❌ Gagal edit file category {category}: {e}")
+            print(f"âŒ Gagal edit file category {category}: {e}")
 
     # =========================
     # GROUP & SEND
@@ -302,13 +403,13 @@ if __name__ == "__main__":
     #         if should_send(f):
     #             send_files.append(f)
     #         else:
-    #             print(f"⏩ Skip kirim {os.path.basename(f)}, STATUS_POD tidak berubah")
+    #             print(f"â© Skip kirim {os.path.basename(f)}, STATUS_POD tidak berubah")
 
     #     if send_files:
     #         final_file_list.append({"contact": contact, "files": send_files})
 
     # if final_file_list:
-    #     print("\n📤 Kirim file WhatsApp\n")
+    #     print("\nðŸ“¤ Kirim file WhatsApp\n")
     #     send_all_files(final_file_list)
     # else:
-    #     print("\n📭 Tidak ada file untuk dikirim\n")
+    #     print("\nðŸ“­ Tidak ada file untuk dikirim\n")

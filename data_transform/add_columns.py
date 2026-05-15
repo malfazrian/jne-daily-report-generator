@@ -45,6 +45,7 @@ from data_transform.client_columns import (
     add_uob_pickup_data_cols,
     add_young_living_cols,
     load_uob_pickup_data,
+    add_mandiri_cols
 )
 from data_transform.grouping_columns import (
     add_grouping_late,
@@ -105,4 +106,5 @@ __all__ = [
     "fix_regional_cols",
     "load_uob_pickup_data",
     "resolve_col",
+    "add_mandiri_cols"
 ]

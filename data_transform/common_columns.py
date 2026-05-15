@@ -170,7 +170,7 @@ def add_aging_carrer(df: pd.DataFrame,
             start_date = np.datetime64(start_dt.normalize().date(), "D")
             end_date = np.datetime64(end_dt.normalize().date(), "D")
 
-            # SAME DAY â†’ 0 hari kerja
+            # SAME DAY 0 hari kerja
             if end_date <= start_date:
                 return 0
 

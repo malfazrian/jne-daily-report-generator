@@ -53,6 +53,12 @@ def _pydatefmt_to_excel(fmt: str) -> str:
     out = re.sub(r"\s+", " ", out).strip()
     return out or "yyyy-mm-dd"
 
+def _is_date_column_name(col) -> bool:
+    col_lower = str(col).strip().lower()
+    if any(token in col_lower for token in ["overday", "tgl merah"]):
+        return False
+    return any(token in col_lower for token in ["tgl", "date", "eta", "tanggal"])
+
 def _write_df_to_sheet(ws, df_data: pd.DataFrame, sheet_title: str, date_cols, excel_date_format="dd/mm/yyyy"):
         try:
             ws.title = sheet_title[:31]  # max 31 char
@@ -144,7 +150,7 @@ def save_with_styling_and_date(df: pd.DataFrame, output_path: str, edit_file: di
     # --- Konversi kolom tanggal ---
     date_cols = []
     for col in df.columns:
-        if "tgl" in col.lower() or "date" in col.lower() or "eta" in col.lower() or "tanggal" in col.lower():
+        if _is_date_column_name(col):
             try:
                 if debug: print(f"[DEBUG] parsing date column: {col}")
                 df[col] = pd.to_datetime(df[col], errors="coerce")

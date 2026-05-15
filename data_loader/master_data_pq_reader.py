@@ -15,7 +15,7 @@ from data_transform.add_columns import (
     add_SBS, add_dept_PZC, add_AJCar_status, add_is_close, add_reason, add_no,
     add_reason_last_attempt, add_date_receive_request, add_descr_return, add_rodamas_cols,
     add_update_time, add_uob_pickup_data_cols, add_sociolla_cols, add_grouping_status, add_aging_carrer,
-    add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw, add_rounded_weight, add_bni_kategori, add_coding_remarks
+    add_SPK, add_reason_1st_attempt, add_wilayah, add_young_living_cols, fix_contact_notelp_col, fix_empty_date_1st_attempt, add_3lc_dest_fw, add_rounded_weight, add_bni_kategori, add_coding_remarks, add_mandiri_cols
 )
 from data_transform.parse_dates import normalize_all_dates
 from .ref_data_loader import load_cust_ref
@@ -82,6 +82,10 @@ TRANSFORM_GROUPS = {
     "FIX_CONTACT_NOTELP_GROUP": {
         "cols": ["CONTACT", "NOTELP"],
         "func": lambda df, ref: fix_contact_notelp_col(df)
+    },
+    "MANDIRI_GROUP": {
+        "cols": ["AREA MANDIRI", "SLA OOB"],
+        "func": lambda df, ref: add_mandiri_cols(df)
     }
 }
 
@@ -166,7 +170,8 @@ TRANSFORM_GROUP_INPUT_COLS = {
     "UOB_GROUP": ["REFNO_UOB", "STATUS_POD", "RECEIVED/REASON", "CODING", "AWB", "REASON RETURN", "TGL_RECEIVED"],
     "YOUNG_LIVING_GROUP": ["AWB", "NOREF", "AMOUNT", "WEIGHT", "PROVINSI", "ETD", "TGL_RECEIVED", "TGL_ENTRY", "STATUS_POD"],
     "FIX_CONTACT_NOTELP_GROUP": ["CONTACT", "NOTELP"],
-    "AGING_CARRER_GROUP": ["TGL_ENTRY", "1ST_ATTEMPT_DATE", "TGL_RECEIVED", "ETD", "STATUS_POD"]
+    "AGING_CARRER_GROUP": ["TGL_ENTRY", "1ST_ATTEMPT_DATE", "TGL_RECEIVED", "ETD", "STATUS_POD"],
+    "MANDIRI_GROUP": ["REGIONAL"]
 }
 
 # daftar kolom yang dibutuhkan (preserve)
@@ -446,9 +451,9 @@ def _eval_single_condition(df: pd.DataFrame, condition: list) -> pd.Series:
     col = df[col_name]
 
     if ftype == "starts_with":
-        return col.astype(str).str.startswith(str(arg))
+        return col.astype(str).str.upper().str.startswith(str(arg).upper())
     elif ftype == "ends_with":
-        return col.astype(str).str.endswith(str(arg))
+        return col.astype(str).str.upper().str.endswith(str(arg).upper())
     elif ftype == "contains":
         return col.astype(str).str.contains(str(arg), case=False, na=False)
     elif ftype == "regex":
@@ -884,10 +889,10 @@ def sanitize_df_for_excel(df: pd.DataFrame) -> pd.DataFrame:
             lambda x: x.to_pydatetime() if isinstance(x, pd.Timestamp) else x
         )
 
-    # Normalize common representations of missing/empty values so Excel shows empty cells
-    # Replace pandas NA, numpy nan, literal "<NA>", and numeric 0 with None
+    # Normalize common representations of missing/empty values so Excel shows empty cells.
+    # Keep numeric 0 as a valid report value.
     try:
-        df = df.replace({pd.NA: None, np.nan: None, "<NA>": None, 0: None})
+        df = df.replace({pd.NA: None, np.nan: None, "<NA>": None})
     except Exception:
         # best-effort: ignore if replace fails for some dtypes
         pass
@@ -953,6 +958,8 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
             ref_sheet = cust_ref.get("ref_sheet", [])
             col_order = cust_ref.get("col_order")
             period = (crit.get("period") or "").strip().lower()
+            parquet_name_contains = crit.get("parquet_name_contains")
+            parquet_path_contains = crit.get("parquet_path_contains")
             split_by_month_param = crit.get("split_by_month")
             if split_by_month_param is None:
                 split_by_month = period not in {"last_n_months", "last_months", "month_range"}
@@ -992,6 +999,12 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 years_list = get_last_n_years(1)
                 start_dt = datetime(int(years_list[0]), 1, 1)
                 end_dt = datetime(int(years_list[-1]) + 1, 1, 1)
+            elif period in {"previous_months", "prev_months", "bulan_sebelumnya"}:
+                jm = int(jumlah_bulan) if jumlah_bulan else 2
+                today = datetime.today()
+                current_month_start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                start_dt = current_month_start - relativedelta(months=jm)
+                end_dt = current_month_start
             else:
                 # fallback: jumlah_bulan or 3
                 jm = int(jumlah_bulan) if jumlah_bulan else 3
@@ -1023,6 +1036,25 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
             if not parquet_files:
                 # last attempt: try scanning base_unc with fallback inside _collect_parquet_files
                 parquet_files = _collect_parquet_files([], base_unc, category, debug=debug)
+
+            def _as_list(value):
+                if isinstance(value, (list, tuple, set)):
+                    return list(value)
+                return [value]
+
+            if parquet_name_contains:
+                needles = [str(x).lower() for x in _as_list(parquet_name_contains) if str(x).strip()]
+                parquet_files = [
+                    path for path in parquet_files
+                    if any(needle in os.path.basename(path).lower() for needle in needles)
+                ]
+
+            if parquet_path_contains:
+                needles = [str(x).lower() for x in _as_list(parquet_path_contains) if str(x).strip()]
+                parquet_files = [
+                    path for path in parquet_files
+                    if any(needle in path.replace("\\", "/").lower() for needle in needles)
+                ]
 
             if not parquet_files:
                 print(f"⚠️ Tidak ada parquet file ditemukan untuk grup {saved_as} (folders checked).")
@@ -1476,22 +1508,36 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
 
                 if move_to_file:
                     target_file = os.path.join(save_base, f"{move_to_file}.xlsx")
-                    sheet_name = local_save_as
+                    sheet_name = crit.get("move_to_sheet_name") or local_save_as
+                    append_to_sheet = bool(crit.get("append_to_sheet"))
                     df_to_save = prepare_df_for_save(df_segment)
                     df_to_save = sanitize_df_for_excel(df_to_save)
                     if os.path.exists(target_file):
-                        book = openpyxl.load_workbook(target_file)
+                        try:
+                            book = openpyxl.load_workbook(target_file)
+                        except Exception as e:
+                            print(f"⚠️ Workbook gabungan rusak/tidak valid, dibuat ulang: {target_file} ({e})")
+                            book = openpyxl.Workbook()
+                            if book.active and book.active.title == "Sheet":
+                                book.remove(book.active)
                     else:
                         book = openpyxl.Workbook()
                         # Remove default empty "Sheet" created by openpyxl
                         if book.active and book.active.title == "Sheet":
                             book.remove(book.active)
-                    if sheet_name in book.sheetnames:
+                    if sheet_name in book.sheetnames and not append_to_sheet:
                         book.remove(book[sheet_name])
-                    ws = book.create_sheet(title=sheet_name)
-                    for i, col in enumerate(df_to_save.columns, 1):
-                        ws.cell(row=1, column=i, value=col)
-                    for r_idx, row in enumerate(df_to_save.itertuples(index=False), 2):
+
+                    if sheet_name in book.sheetnames:
+                        ws = book[sheet_name]
+                        start_row = ws.max_row + 1
+                    else:
+                        ws = book.create_sheet(title=sheet_name)
+                        for i, col in enumerate(df_to_save.columns, 1):
+                            ws.cell(row=1, column=i, value=col)
+                        start_row = 2
+
+                    for r_idx, row in enumerate(df_to_save.itertuples(index=False), start_row):
                         for c_idx, value in enumerate(row, 1):
                             ws.cell(row=r_idx, column=c_idx, value=value)
                     style_worksheet(ws)
