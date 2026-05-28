@@ -147,6 +147,103 @@ def safe_get_pivot_field(pt, field_name, debug=False):
             print(f"[!] PivotFields lookup failed for '{field_name}': {e} (and failed to enumerate fields)")
         return None
 
+def _safe_range_address(rng):
+    try:
+        return rng.Address(False, False)
+    except Exception:
+        return "<unknown>"
+
+def _range_bounds(rng):
+    try:
+        row1 = int(rng.Row)
+        col1 = int(rng.Column)
+        row2 = row1 + int(rng.Rows.Count) - 1
+        col2 = col1 + int(rng.Columns.Count) - 1
+        return row1, col1, row2, col2
+    except Exception:
+        return None
+
+def _ranges_intersect(a, b):
+    if not a or not b:
+        return False
+    ar1, ac1, ar2, ac2 = a
+    br1, bc1, br2, bc2 = b
+    return not (ar2 < br1 or br2 < ar1 or ac2 < bc1 or bc2 < ac1)
+
+def _describe_existing_pivots(ws, skip_name=None):
+    pivots = []
+    try:
+        count = ws.PivotTables().Count
+        for idx in range(1, count + 1):
+            try:
+                pt = ws.PivotTables(idx)
+                name = str(pt.Name)
+                if skip_name and name == skip_name:
+                    continue
+                rng = pt.TableRange2
+                pivots.append({
+                    "name": name,
+                    "address": _safe_range_address(rng),
+                    "bounds": _range_bounds(rng),
+                })
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return pivots
+
+def _describe_pivot_config(pivot):
+    def join(values):
+        return ", ".join(str(v) for v in values) if values else "-"
+
+    value_names = []
+    for val in pivot.get("values", []):
+        if isinstance(val, dict):
+            value_names.append(str(val.get("name") or val.get("caption") or val.get("field")))
+        else:
+            value_names.append(str(val))
+
+    return (
+        f"rows=[{join(pivot.get('rows', []))}], "
+        f"columns=[{join(pivot.get('columns', []))}], "
+        f"filters=[{join(pivot.get('filters', []))}], "
+        f"values=[{join(value_names)}]"
+    )
+
+def _print_overlap_context(ws, pivot, table_name, dest_cell, pt=None):
+    current_bounds = None
+    current_address = None
+    try:
+        if pt is not None:
+            current_range = pt.TableRange2
+            current_bounds = _range_bounds(current_range)
+            current_address = _safe_range_address(current_range)
+    except Exception:
+        pass
+
+    print(
+        f"[!] Detail pivot gagal: name='{pivot.get('name', table_name)}' "
+        f"table='{table_name}' sheet='{ws.Name}' dest='{dest_cell}'"
+    )
+    print(f"[!] Config pivot gagal: {_describe_pivot_config(pivot)}")
+    if current_address:
+        print(f"[!] Range sementara pivot gagal: {current_address}")
+
+    existing = _describe_existing_pivots(ws, skip_name=table_name)
+    if not existing:
+        print("[!] Belum ada PivotTable lain yang bisa dibandingkan di sheet tujuan.")
+        return
+
+    overlaps = [info for info in existing if _ranges_intersect(current_bounds, info["bounds"])]
+    if overlaps:
+        print("[!] Kemungkinan overlap dengan PivotTable berikut:")
+        for info in overlaps:
+            print(f"    - {info['name']} di {info['address']}")
+    else:
+        print("[!] PivotTable yang sudah ada di sheet tujuan:")
+        for info in existing:
+            print(f"    - {info['name']} di {info['address']}")
+
 def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list | None = None, summary_sheet_name: str = "Summary", date_format: str = "dd/mm/yyyy",
     max_retries: int = 5, debug: bool = False) -> bool:
     """
@@ -175,6 +272,10 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
     ok = False
     for attempt in range(max_retries):
         xl = wb = None
+        active_pivot = None
+        active_table_name = None
+        active_dest_cell = None
+        active_pt = None
         try:
             pythoncom.CoInitialize()
             xl = win32.gencache.EnsureDispatch("Excel.Application")
@@ -267,11 +368,20 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
                 return False
 
             # 5) Build pivots
+            active_pivot = None
+            active_table_name = None
+            active_dest_cell = None
+            active_pt = None
             for pivot in pivots:
+                active_pivot = pivot
+                active_dest_cell = pivot.get("dest", "B3")
+                active_table_name = ensure_unique_pivot_name(wb, pivot.get("name", "Pivot"))
+                active_pt = None
                 pc = safe_create_pivotcache(wb, src_range)
                 # nama unik
-                table_name = ensure_unique_pivot_name(wb, pivot.get("name", "Pivot"))
-                pt = make_pivot(pc, pivot.get("dest", "B3"), table_name, sum_ws)
+                table_name = active_table_name
+                pt = make_pivot(pc, active_dest_cell, table_name, sum_ws)
+                active_pt = pt
 
                 # rows
                 for i, row_field in enumerate(pivot.get("rows", []), start=1):
@@ -392,6 +502,17 @@ def add_pivots(file_path: str, data_sheet_name: str | None = None, pivots: list 
             break  
 
         except Exception as e:
+            if "overlap" in str(e).lower() and active_pivot is not None:
+                try:
+                    _print_overlap_context(
+                        sum_ws,
+                        active_pivot,
+                        active_table_name,
+                        active_dest_cell,
+                        pt=active_pt,
+                    )
+                except Exception as ctx_err:
+                    print(f"[!] Gagal mengambil detail pivot overlap: {ctx_err}")
             print(f"[!] Attempt {attempt+1}/{max_retries} gagal: {e}")
             # Auto-clear corrupt gen_py cache
             if "gen_py" in str(e):

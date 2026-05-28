@@ -131,7 +131,7 @@ STATUS_POD_FULL_INPUT_COLS = [
 TRANSFORM_INPUT_COLS = {
     "ADDRESS": ["ADDR1", "ADDR2", "ADDR3"],
     "STATUS_POD": ["CODING", "STATUS_POD", "STATUS_POD_UPDATE"],
-    "CUST_NAME": ["GROUPING_SHIPPER"],
+    "CUST_NAME": ["ID_ACCOUNT"],
     "STATUS_LATLONG": ["STATUS_LATITUDE", "STATUS_LONGITUDE"],
     "ETA": ["ETD", "TGL_ENTRY"],
     "CODING_DELIVERY": ["CODING"],
@@ -141,7 +141,7 @@ TRANSFORM_INPUT_COLS = {
         "INBOUND_MANIFEST_DATE", "HVI_DATE", "1ST_RUNSHEET_DATE", "ETD",
         "ZONA", "MANIFEST_TRANSIT_SUBAGEN_DATE", "MANIFEST_INBOUND_SUBAGEN_DATE",
         "RECEIVING_DATE", "TGL_RECEIVED", "DATE_LAST_ATTEMPT", "STATUS_POD",
-        "NO_CNOTE_FW", "HOLD_REASON", "CARRER",
+        "NO_CNOTE_FW", "HOLD_REASON", "CARRER", "CARRER_POD",
     ],
     "GROUPING_SLA": ["SLA"],
     "ORIGIN 2": ["ORIGIN"],
@@ -158,7 +158,8 @@ TRANSFORM_INPUT_COLS = {
     "3 LC DEST FW": ["DEST_FW"],
     "REASON UNDEL": ["CODING_UNDEL"],
     "BNI_KATEGORI": ["GOODS_DESCR"],
-    "CODING_REMARKS": ["CODING"]
+    "CODING_REMARKS": ["CODING"],
+    "WILAYAH": ["DEST"]
 }
 
 TRANSFORM_GROUP_INPUT_COLS = {
@@ -1242,7 +1243,8 @@ def get_data_from_master_pq(base_dir, criteria=None, category=str, output_dir=No
                 jumlah_bulan_ref = cust_ref.get("jumlah_bulan", 3)
 
                 print(f"🔄 Membaca customer reference dari: {ref_path}")
-                df_custref = load_cust_ref(ref_path, jumlah_bulan_ref, ref_sheet, MASTER_DATE_COL)
+                ref_load_date_col = REF_DATE_COL or MASTER_DATE_COL
+                df_custref = load_cust_ref(ref_path, jumlah_bulan_ref, ref_sheet, ref_load_date_col)
                 df_custref = normalize_all_dates(df_custref, debug=False)
 
                 key_left = _resolve_col_case_insensitive(df_custref, key_left_raw)

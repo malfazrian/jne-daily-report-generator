@@ -298,7 +298,7 @@ if __name__ == "__main__":
     # PARALLEL: GET DATA ONLY
     # =========================
 
-    bypass_history = False
+    bypass_history = True  # untuk sementara, biar development lebih cepat. nanti diubah lagi ke False
 
     print(f"Parallel get_data_from_master_pq | workers={MAX_WORKERS}\n")
  

@@ -5,6 +5,7 @@ import datetime
 import os
 import glob
 import re
+from pathlib import Path
 from pandas.tseries.offsets import CustomBusinessDay
 from dateutil.relativedelta import relativedelta
 
@@ -31,10 +32,79 @@ def add_address(df: pd.DataFrame, name: str) -> pd.DataFrame:
         
     return df
 
-def add_cust_name(df: pd.DataFrame) -> pd.DataFrame:
+def _clean_account_id(value) -> str:
+    if pd.isna(value):
+        return ""
+
+    text = str(value).replace("\xa0", " ").strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text.lstrip("'").strip()
+
+
+def add_cust_name(df: pd.DataFrame, ref_path=None, debug=False) -> pd.DataFrame:
     df = df.copy()
-    if "GROUPING_SHIPPER" in df.columns:
-        df = df.rename(columns={"GROUPING_SHIPPER": "CUST_NAME"})
+
+    if "ID_ACCOUNT" not in df.columns:
+        print("Kolom 'ID_ACCOUNT' tidak ditemukan, tidak bisa lookup CUST_NAME.")
+        if "GROUPING_SHIPPER" in df.columns and "CUST_NAME" not in df.columns:
+            df = df.rename(columns={"GROUPING_SHIPPER": "CUST_NAME"})
+        return df
+
+    ref_path = (
+        Path(ref_path)
+        if ref_path is not None
+        else Path(__file__).resolve().parents[1] / "data" / "project_reference.csv"
+    )
+    if not ref_path.exists():
+        print(f"Reference file tidak ditemukan: {ref_path}")
+        if "GROUPING_SHIPPER" in df.columns and "CUST_NAME" not in df.columns:
+            df = df.rename(columns={"GROUPING_SHIPPER": "CUST_NAME"})
+        return df
+
+    try:
+        ref = pd.read_csv(ref_path, dtype=str, encoding="utf-8")
+    except UnicodeDecodeError:
+        ref = pd.read_csv(ref_path, dtype=str, encoding="latin1")
+
+    ref = ref.rename(columns=lambda x: str(x).strip().upper())
+    if "CUST_ID" not in ref.columns or "CUST_NAME" not in ref.columns:
+        print("File referensi wajib punya kolom: CUST_ID, CUST_NAME")
+        return df
+
+    ref["__ID_KEY"] = ref["CUST_ID"].map(_clean_account_id)
+    ref["CUST_NAME"] = (
+        ref["CUST_NAME"]
+        .fillna("")
+        .astype(str)
+        .str.replace("\xa0", " ", regex=False)
+        .str.strip()
+    )
+    ref_map = (
+        ref.loc[(ref["__ID_KEY"] != "") & (ref["CUST_NAME"] != ""), ["__ID_KEY", "CUST_NAME"]]
+        .drop_duplicates("__ID_KEY", keep="first")
+        .set_index("__ID_KEY")["CUST_NAME"]
+    )
+
+    old_cust_name = None
+    if "CUST_NAME" in df.columns:
+        old_cust_name = df["CUST_NAME"]
+    elif "GROUPING_SHIPPER" in df.columns:
+        old_cust_name = df["GROUPING_SHIPPER"]
+
+    mapped = df["ID_ACCOUNT"].map(_clean_account_id).map(ref_map)
+    if old_cust_name is not None:
+        df["CUST_NAME"] = mapped.where(
+            mapped.notna() & mapped.astype(str).str.strip().ne(""),
+            old_cust_name,
+        )
+    else:
+        df["CUST_NAME"] = mapped
+
+    if debug:
+        missing = df["CUST_NAME"].isna().sum()
+        print(f"add_cust_name: mapped={mapped.notna().sum()}, missing={missing}")
+
     return df
 
 def add_periode(df: pd.DataFrame, debug=False) -> pd.DataFrame:
@@ -128,7 +198,7 @@ def resolve_col(df, options, default=pd.NA):
     for col in options:
         if col in df.columns:
             return col
-    # kalau semua ga ada â†’ buat kolom pertama
+    # kalau semua ga ada buat kolom pertama
     df[options[0]] = default
     return options[0]
 

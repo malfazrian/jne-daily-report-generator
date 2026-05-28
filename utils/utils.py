@@ -715,3 +715,83 @@ pivot_template_zilong = [
             ]
         }
     ]
+
+pivot_template_ming = [
+        {
+            "name": "PivotStatusMing",
+            "dest": "B2",
+            "rows": ["STATUS_POD"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"},
+                {"field": "AWB", "name": "JUMLAH %", "func": "count", "as_percentage": True, "percentage_of": "column"}
+            ]
+        },
+        {
+            "name": "PivotRegionalMing",
+            "dest": "F2",
+            "rows": ["REGIONAL"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"},
+                {"field": "AWB", "name": "JUMLAH %", "func": "count", "as_percentage": True, "percentage_of": "column"}
+            ]
+        },
+        {
+            "name": "PivotServiceMing",
+            "dest": "F16",
+            "rows": ["SERVICE"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"},
+                {"field": "AWB", "name": "JUMLAH %", "func": "count", "as_percentage": True, "percentage_of": "column"}
+            ]
+        },
+        {
+            "name": "PivotCarrerMing",
+            "dest": "J2",
+            "rows": ["CARRER"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"},
+                {"field": "AWB", "name": "JUMLAH %", "func": "count", "as_percentage": True, "percentage_of": "column"}
+            ]
+        },
+        {
+            "name": "PivotZonaMing",
+            "dest": "J11",
+            "rows": ["ZONA"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"},
+                {"field": "AWB", "name": "JUMLAH %", "func": "count", "as_percentage": True, "percentage_of": "column"}
+            ]
+        },
+        {
+            "name": "PivotPeriodeMing",
+            "dest": "J19",
+            "rows": ["TGL_ENTRY"],
+            "columns": [],
+            "filters": [],
+            "values": [
+                {"field": "AWB", "name": "JUMLAH", "func": "count"}
+            ]
+        }
+    ]
+
+pivot_regional_3lc_by_status = [
+    {
+        "name": "PivotRegional3LCByStatus",
+        "dest": "B2",
+        "rows": ["REGIONAL", "3 LC DEST"],
+        "columns": ["STATUS_POD"],
+        "values": [
+            {"field": "AWB", "name": "JUMLAH", "func": "count"},
+        ]
+    }
+]
